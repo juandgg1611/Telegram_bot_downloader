@@ -16,25 +16,33 @@ def main():
     print("🚀 Iniciando Bot en Producción...")
     print("=" * 50)
     
-    # Verificar variables de entorno
-    token = os.getenv('8315169253:AAEHkDCqPayRQJxM6_isxBVf-7L4PFnrzkE')
+    # ✅ CORRECTO: Verificar variable de entorno por NOMBRE
+    token = os.getenv('TELEGRAM_TOKEN')  # <-- ¡¡¡CORREGIDO!!!
     if not token:
         print("❌ ERROR: TELEGRAM_TOKEN no configurado")
         print("   Configúralo en Railway/Render como variable de entorno")
         sys.exit(1)
     
-    # Actualizar config.py con el token de entorno
+    print(f"✅ Token encontrado (primeros 10 chars): {token[:10]}...")
+    
+    # Si necesitas actualizar config.py con el token
     config_path = Path(__file__).parent / 'src' / 'config.py'
     if config_path.exists():
-        with open(config_path, 'r', encoding='utf-8') as f:
-            content = f.read()
-        
-        # Reemplazar el token placeholder
-        content = content.replace('"8315169253:AAEHkDCqPayRQJxM6_isxBVf-7L4PFnrzkE"', f'"{token}"')
-        
-        with open(config_path, 'w', encoding='utf-8') as f:
-            f.write(content)
-        print("✅ Token configurado desde variables de entorno")
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            # Buscar y reemplazar cualquier token en config.py
+            # Esto es útil si tienes un token hardcodeado
+            import re
+            content = re.sub(r'BOT_TOKEN\s*=\s*["\'][^"\']*["\']', 
+                           f'BOT_TOKEN = "{token}"', content)
+            
+            with open(config_path, 'w', encoding='utf-8') as f:
+                f.write(content)
+            print("✅ Token actualizado en config.py")
+        except Exception as e:
+            print(f"⚠️  No se pudo actualizar config.py: {e}")
     
     # Importar después de configurar
     from src.bot import setup_application
@@ -49,25 +57,20 @@ def main():
         application, bot = setup_application()
         
         # Manejo de señales para producción
-        loop = asyncio.get_event_loop()
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
         
         def signal_handler(signum, frame):
             print(f"\n📶 Señal {signum} recibida, cerrando bot...")
+            loop.stop()
             sys.exit(0)
         
         signal.signal(signal.SIGINT, signal_handler)
         signal.signal(signal.SIGTERM, signal_handler)
         
         # Ejecutar
-        loop.run_until_complete(application.initialize())
-        loop.run_until_complete(application.start())
-        loop.run_until_complete(application.updater.start_polling())
-        
-        print("🟢 Bot funcionando correctamente en producción")
-        print("💡 Presiona Ctrl+C en la consola de Railway para detener")
-        
-        # Mantener el bot corriendo
-        loop.run_forever()
+        print("🔄 Inicializando bot...")
+        application.run_polling()
         
     except Exception as e:
         print(f"❌ Error fatal en producción: {e}")
