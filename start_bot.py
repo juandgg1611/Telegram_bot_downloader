@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """
-Script principal para iniciar el bot de TikTok y YouTube
+Script principal para Railway/Render
 """
-
-import sys
 import os
+import sys
 import signal
 import asyncio
 from pathlib import Path
@@ -12,78 +11,69 @@ from pathlib import Path
 # Añadir src al path
 sys.path.insert(0, str(Path(__file__).parent / 'src'))
 
-from src.bot import setup_application
-from src.config import LOG_CONFIG
-import logging
-import logging.config
-
-def setup_logging():
-    """Configurar logging"""
-    logging.config.dictConfig(LOG_CONFIG)
-    
-    # Log adicional a consola
-    console_handler = logging.StreamHandler()
-    console_handler.setLevel(logging.INFO)
-    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    console_handler.setFormatter(formatter)
-    
-    root_logger = logging.getLogger()
-    root_logger.addHandler(console_handler)
-
-async def main():
-    """Función principal asíncrona"""
-    print("🎬 Iniciando TikTok & YouTube Downloader Bot...")
+def main():
+    """Función principal para entornos de producción"""
+    print("🚀 Iniciando Bot en Producción...")
     print("=" * 50)
     
-    # Verificar token
-    from src.config import TELEGRAM_TOKEN
-    if TELEGRAM_TOKEN == "TU_TOKEN_AQUÍ":
-        print("❌ ERROR: Debes configurar el token en src/config.py")
-        print("   Obtén un token de @BotFather en Telegram")
+    # Verificar variables de entorno
+    token = os.getenv('8315169253:AAEHkDCqPayRQJxM6_isxBVf-7L4PFnrzkE')
+    if not token:
+        print("❌ ERROR: TELEGRAM_TOKEN no configurado")
+        print("   Configúralo en Railway/Render como variable de entorno")
         sys.exit(1)
     
-    # Configurar logging
-    setup_logging()
-    logger = logging.getLogger(__name__)
+    # Actualizar config.py con el token de entorno
+    config_path = Path(__file__).parent / 'src' / 'config.py'
+    if config_path.exists():
+        with open(config_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        # Reemplazar el token placeholder
+        content = content.replace('"8315169253:AAEHkDCqPayRQJxM6_isxBVf-7L4PFnrzkE"', f'"{token}"')
+        
+        with open(config_path, 'w', encoding='utf-8') as f:
+            f.write(content)
+        print("✅ Token configurado desde variables de entorno")
     
-    # Configurar manejo de señales
-    loop = asyncio.get_event_loop()
+    # Importar después de configurar
+    from src.bot import setup_application
     
-    def signal_handler(signum, frame):
-        logger.info(f"Recibida señal {signum}, cerrando bot...")
-        # Aquí podríamos añadir limpieza si fuera necesario
-        sys.exit(0)
-    
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
+    print("✅ Configuración completada")
+    print(f"📁 Directorio: {Path(__file__).parent.absolute()}")
+    print("=" * 50)
+    print("🤖 Iniciando bot de Telegram...")
     
     try:
-        # Crear aplicación
+        # Crear y ejecutar aplicación
         application, bot = setup_application()
         
-        print("✅ Bot configurado correctamente")
-        print(f"📂 Descargas en: {Path('downloads').absolute()}")
-        print(f"📝 Logs en: {Path('logs').absolute()}")
-        print("=" * 50)
-        print("🤖 Bot iniciado. Presiona Ctrl+C para detener.")
-        print("🟢 Listo para recibir mensajes...")
+        # Manejo de señales para producción
+        loop = asyncio.get_event_loop()
         
-        # Iniciar polling
-        await application.initialize()
-        await application.start()
-        await application.updater.start_polling()
+        def signal_handler(signum, frame):
+            print(f"\n📶 Señal {signum} recibida, cerrando bot...")
+            sys.exit(0)
+        
+        signal.signal(signal.SIGINT, signal_handler)
+        signal.signal(signal.SIGTERM, signal_handler)
+        
+        # Ejecutar
+        loop.run_until_complete(application.initialize())
+        loop.run_until_complete(application.start())
+        loop.run_until_complete(application.updater.start_polling())
+        
+        print("🟢 Bot funcionando correctamente en producción")
+        print("💡 Presiona Ctrl+C en la consola de Railway para detener")
         
         # Mantener el bot corriendo
-        await asyncio.Event().wait()
+        loop.run_forever()
         
     except Exception as e:
-        logger.error(f"Error fatal: {e}", exc_info=True)
-        print(f"❌ Error fatal: {e}")
+        print(f"❌ Error fatal en producción: {e}")
+        import traceback
+        traceback.print_exc()
         sys.exit(1)
 
 if __name__ == '__main__':
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        print("\n👋 Bot detenido por el usuario")
-        sys.exit(0)
+    main()
