@@ -80,7 +80,6 @@ ehthumbs.db
 Thumbs.db
 
 # Configuraciones sensibles
-config.py
 secrets.py
 *.env
 .env.local
