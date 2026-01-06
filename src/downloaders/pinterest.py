@@ -60,7 +60,8 @@ class PinterestDownloader:
     URL_PATTERNS = {
         'pin': r'https?://(?:www\.)?pinterest\.(?:com|fr|de|co\.uk|ru|etc)/pin/(\d+)',
         'image': r'https?://(?:www\.)?pinterest\.(?:com|fr|de|co\.uk|ru|etc)/[^/]+/[^/]+/',
-        # Los videos en Pinterest suelen ser Pins con recursos .mp4
+        'pin_it': r'https?://pin\.it/[\w]+',  
+        'pin_it_with_params': r'https?://pin\.it/[\w]+\?.*',  
     }
 
     def __init__(self, api_token: Optional[str] = None):

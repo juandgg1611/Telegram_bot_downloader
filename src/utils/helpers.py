@@ -30,15 +30,13 @@ def validate_url(url: str) -> Tuple[bool, str]:
     if not url or not isinstance(url, str):
         return False, "invalid"
     
-    # Limpiar la URL
     url = url.strip()
     
-    # Asegurar que empiece con http:// o https://
     if not url.startswith(('http://', 'https://')):
         url = 'https://' + url
     
     try:
-        # Verificar dominio primero (más rápido que importar las clases)
+        
         domain = url.lower()
         
         # TikTok
@@ -56,15 +54,15 @@ def validate_url(url: str) -> Tuple[bool, str]:
         # Instagram
         if any(ig_domain in domain for ig_domain in ['instagram.com', 'instagr.am']):
             from ..downloaders.instagram import InstagramDownloader
-            is_instagram, _ = InstagramDownloader.is_instagram_url(url)
+            is_instagram, _ = InstagramDownloader.is_instagram_url(url)  # Tupla aquí
             if is_instagram:
                 return True, "instagram"
         
-        # Pinterest
+        # Pinterest 
         if any(pin_domain in domain for pin_domain in ['pinterest.com', 'pin.it', 'pinterest.co.uk', 
                                                       'pinterest.fr', 'pinterest.de', 'pinterest.ru']):
             from ..downloaders.pinterest import PinterestDownloader
-            is_pinterest, _ = PinterestDownloader.is_pinterest_url(url)
+            is_pinterest = PinterestDownloader.is_pinterest_url(url)
             if is_pinterest:
                 return True, "pinterest"
         
