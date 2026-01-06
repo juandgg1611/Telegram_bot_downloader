@@ -435,7 +435,7 @@ Aparecerán botones para elegir:
                 self.youtube_downloader.download_video, url, '720p'
             )
             
-            # Verificar tamaño
+            # Verificar tamaño máximo configurado (ej: 3GB)
             if media_info['filesize'] > MAX_FILE_SIZE:
                 self.youtube_downloader.cleanup(filepath)
                 await query.edit_message_text(MESSAGES['too_large'])
@@ -446,16 +446,55 @@ Aparecerán botones para elegir:
             if media_info.get('duration', 0) > 0:
                 caption += f"\n⏱ {format_duration(media_info['duration'])}"
             
-            # Enviar video
-            with open(filepath, 'rb') as media_file:
-                await context.bot.send_video(
-                    chat_id=query.message.chat_id,
-                    video=InputFile(media_file, filename=f"youtube_{media_info['id']}.mp4"),
-                    caption=caption,
-                    supports_streaming=True,
-                    read_timeout=60,
-                    write_timeout=60,
+            # DECIDIR MÉTODO DE ENVÍO SEGÚN TAMAÑO
+            filesize_mb = media_info['filesize'] / (1024 * 1024)
+            
+            # Telegram limits:
+            # - send_video: máximo 50MB para streaming
+            # - send_document: máximo 2GB (teórico), mejor mantener < 1.5GB
+            
+            if media_info['filesize'] <= 45 * 1024 * 1024:  # ≤ 45MB (dejar margen)
+                # Método 1: Enviar como video con streaming
+                await query.edit_message_text("⏳ Enviando video (streaming)...")
+                with open(filepath, 'rb') as media_file:
+                    await context.bot.send_video(
+                        chat_id=query.message.chat_id,
+                        video=InputFile(media_file, filename=f"youtube_{media_info['id']}.mp4"),
+                        caption=caption,
+                        supports_streaming=True,
+                        read_timeout=120,  # Aumentar timeout para videos grandes
+                        write_timeout=120,
+                        connect_timeout=120,
+                    )
+                
+            elif media_info['filesize'] <= 1.5 * 1024 * 1024 * 1024:  # ≤ 1.5GB
+                # Método 2: Enviar como documento (hasta 2GB teóricos)
+                warning_msg = f"⚠️ Video grande ({filesize_mb:.1f}MB). Enviando como documento..."
+                await query.edit_message_text(warning_msg)
+                
+                with open(filepath, 'rb') as media_file:
+                    await context.bot.send_document(
+                        chat_id=query.message.chat_id,
+                        document=InputFile(media_file, filename=f"youtube_{media_info['id']}.mp4"),
+                        caption=caption,
+                        read_timeout=300,  # Timeout largo para archivos grandes
+                        write_timeout=300,
+                        connect_timeout=300,
+                    )
+                
+            else:  # > 1.5GB
+                # Método 3: Dividir o comprimir (opcional)
+                self.youtube_downloader.cleanup(filepath)
+                await query.edit_message_text(
+                    f"❌ Video demasiado grande ({filesize_mb:.1f}MB).\n\n"
+                    f"📊 Límites de Telegram:\n"
+                    f"• Video con streaming: ≤ 50MB\n"
+                    f"• Como documento: ≤ 1.5GB recomendado\n\n"
+                    f"💡 Sugerencias:\n"
+                    f"1. Descarga calidad más baja\n"
+                    f"2. Usa /help para ver opciones"
                 )
+                return
             
             # Actualizar estadísticas
             self.stats['downloads']['youtube_video']['total_size'] += media_info['filesize']
@@ -467,22 +506,27 @@ Aparecerán botones para elegir:
             # Eliminar mensaje de botones
             await query.delete_message()
             
-            logger.info(f"YouTube video {media_info['id']} enviado exitosamente")
+            logger.info(f"YouTube video {media_info['id']} enviado exitosamente ({filesize_mb:.1f}MB)")
             
         except Exception as e:
             logger.error(f"Error procesando video YouTube: {e}", exc_info=True)
             error_msg = f"❌ Error descargando video: {str(e)[:200]}"
             
             # Mensajes específicos
-            if "Private video" in str(e):
+            error_str = str(e).lower()
+            if "request entity too large" in error_str or "413" in error_str:
+                error_msg = f"❌ Video demasiado grande para Telegram.\n\n💡 Intenta:\n1. Calidad más baja\n2. Video más corto"
+            elif "private video" in error_str:
                 error_msg = "❌ Este video es privado y no se puede descargar."
-            elif "not available" in str(e).lower():
+            elif "not available" in error_str:
                 error_msg = "❌ Este video no está disponible en tu país o fue eliminado."
-            elif "Sign in" in str(e):
+            elif "sign in" in error_str:
                 error_msg = "❌ Este video requiere inicio de sesión (edad restringida)."
+            elif "timeout" in error_str:
+                error_msg = "❌ Tiempo de espera agotado. El video es muy grande o la conexión es lenta."
             
             await query.edit_message_text(error_msg)
-    
+            
     async def _process_youtube_audio(self, url: str, query, context: ContextTypes.DEFAULT_TYPE):
         """Procesar descarga de audio de YouTube"""
         try:
@@ -508,17 +552,31 @@ Aparecerán botones para elegir:
             if media_info.get('duration', 0) > 0:
                 caption += f"\n⏱ {format_duration(media_info['duration'])}"
             
-            # Enviar audio
-            with open(filepath, 'rb') as media_file:
-                await context.bot.send_audio(
-                    chat_id=query.message.chat_id,
-                    audio=InputFile(media_file, filename=f"youtube_{media_info['id']}.m4a"),
-                    caption=caption,
-                    title=media_info['title'][:64],
-                    performer=media_info['channel'][:64],
-                    read_timeout=60,
-                    write_timeout=60,
-                )
+            # Telegram audio limit: 50MB
+            if media_info['filesize'] <= 50 * 1024 * 1024:
+                # Enviar como audio
+                with open(filepath, 'rb') as media_file:
+                    await context.bot.send_audio(
+                        chat_id=query.message.chat_id,
+                        audio=InputFile(media_file, filename=f"youtube_{media_info['id']}.m4a"),
+                        caption=caption,
+                        title=media_info['title'][:64],
+                        performer=media_info['channel'][:64],
+                        read_timeout=120,
+                        write_timeout=120,
+                    )
+            else:
+                # Si es muy grande, enviar como documento
+                await query.edit_message_text(f"⚠️ Audio grande ({media_info['filesize']/1024/1024:.1f}MB). Enviando como documento...")
+                
+                with open(filepath, 'rb') as media_file:
+                    await context.bot.send_document(
+                        chat_id=query.message.chat_id,
+                        document=InputFile(media_file, filename=f"youtube_{media_info['id']}.m4a"),
+                        caption=caption,
+                        read_timeout=120,
+                        write_timeout=120,
+                    )
             
             # Actualizar estadísticas
             self.stats['downloads']['youtube_audio']['total_size'] += media_info['filesize']
@@ -537,7 +595,9 @@ Aparecerán botones para elegir:
             error_msg = f"❌ Error descargando audio: {str(e)[:200]}"
             
             # Mensajes específicos
-            if "FFmpeg" in str(e):
+            if "request entity too large" in str(e).lower():
+                error_msg = "❌ Audio demasiado grande (>50MB). Intenta con un video más corto."
+            elif "FFmpeg" in str(e):
                 error_msg = "❌ Error: No se pudo procesar el audio. El formato puede no ser compatible."
             
             await query.edit_message_text(error_msg)
