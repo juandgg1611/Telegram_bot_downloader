@@ -175,53 +175,109 @@ class PinterestDownloader:
         Busca metadatos Open Graph y enlaces a recursos.
         """
         try:
-            response = self.session.get(url, timeout=15)
+            # Usar headers más realistas
+            headers = {
+                **self.HEADERS,
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Cache-Control': 'no-cache',
+            }
+            
+            response = self.session.get(url, headers=headers, timeout=15)
             response.raise_for_status()
             html = response.text
-
-            # Extraer metadatos Open Graph (muy comunes en Pinterest)
-            title = self._extract_og_tag(html, 'og:title')
-            description = self._extract_og_tag(html, 'og:description')
-            image_url = self._extract_og_tag(html, 'og:image')
-            video_url = self._extract_og_tag(html, 'og:video')
-
+            
+            print(f"🔍 HTML obtenido ({len(html)} bytes)")  # Debug
+            
+            # 1. BUSCAR VIDEO primero (más valioso)
             download_urls = []
             media_type = 'image'
-            if video_url:
-                download_urls.append(video_url)
-                media_type = 'video'
-            elif image_url:
-                download_urls.append(image_url)
-
-            # Intentar encontrar más imágenes (para carruseles) en JSON estructurado
-            # Pinterest suele incluir datos en <script id="__PWS_DATA__">
-            script_pattern = r'<script id="__PWS_DATA__" type="application/json">(.*?)</script>'
-            match = re.search(script_pattern, html, re.DOTALL)
-            if match:
-                try:
-                    data = json.loads(match.group(1))
-                    # La estructura de datos es compleja y cambia a menudo.
-                    # Necesitarás explorarla para encontrar las URLs de las imágenes/videos.
-                    # Por ejemplo, podrías buscar 'images', 'url', 'video_assets', etc.
-                except json.JSONDecodeError:
-                    pass
-
-            return PinterestContentInfo(
-                id=self.extract_pin_id(url) or f"scraped_{int(time.time())}",
-                content_type=media_type,
-                title=title or 'Pin de Pinterest',
-                description=description or '',
-                uploader='',  # Difícil de obtener sin API
-                source_url=self._extract_og_tag(html, 'og:url'),
-                pinterest_url=url,
-                download_urls=download_urls,
-                width=0,  # Tendrías que extraerlo de otros metadatos o descargar la imagen
-                height=0,
-                is_video=(media_type == 'video')
-            )
-
+            
+            # Patrones para encontrar videos
+            video_patterns = [
+                r'"contentUrl":"([^"]+\.mp4[^"]*)"',
+                r'"videoUrl":"([^"]+)"',
+                r'property="og:video" content="([^"]+)"',
+                r'<meta[^>]*property="og:video:url"[^>]*content="([^"]+)"',
+                r'src="([^"]+\.mp4)"',
+            ]
+            
+            for pattern in video_patterns:
+                matches = re.findall(pattern, html, re.IGNORECASE)
+                for match in matches:
+                    if match and 'http' in match:
+                        video_url = match.replace('\\/', '/')
+                        if video_url not in download_urls:
+                            download_urls.append(video_url)
+                            media_type = 'video'
+                            print(f"✅ Video encontrado: {video_url[:80]}...")
+                            break
+                if download_urls:
+                    break
+            
+            # 2. Si no hay video, buscar IMAGEN
+            if not download_urls:
+                image_patterns = [
+                    r'property="og:image" content="([^"]+)"',
+                    r'<meta[^>]*property="og:image:url"[^>]*content="([^"]+)"',
+                    r'"image":"([^"]+)"',
+                    r'src="([^"]+\.(?:jpg|jpeg|png|webp|gif))"[^>]*class="[^"]*hcl[^"]*"',
+                    r'data-test-id="pin-closeup-image" src="([^"]+)"',
+                ]
+                
+                for pattern in image_patterns:
+                    matches = re.findall(pattern, html, re.IGNORECASE)
+                    for match in matches:
+                        if match and 'http' in match:
+                            img_url = match.replace('\\/', '/')
+                            if img_url not in download_urls:
+                                download_urls.append(img_url)
+                                print(f"✅ Imagen encontrada: {img_url[:80]}...")
+                                break
+                    if download_urls:
+                        break
+            
+            # 3. Extraer título y descripción
+            title = self._extract_og_tag(html, 'og:title') or 'Pin de Pinterest'
+            description = self._extract_og_tag(html, 'og:description') or ''
+            
+            # Extraer usuario si es posible
+            uploader = ''
+            user_patterns = [
+                r'"creator":"([^"]+)"',
+                r'"username":"([^"]+)"',
+                r'@([\w\-_]+)',
+            ]
+            
+            for pattern in user_patterns:
+                match = re.search(pattern, html)
+                if match:
+                    uploader = match.group(1)
+                    break
+            
+            print(f"📊 Info extraída: {title[:50]}... | URLs: {len(download_urls)}")
+            
+            if download_urls:
+                return PinterestContentInfo(
+                    id=self.extract_pin_id(url) or f"scraped_{int(time.time())}",
+                    content_type=media_type,
+                    title=title[:200],
+                    description=description[:500],
+                    uploader=uploader,
+                    source_url=self._extract_og_tag(html, 'og:url'),
+                    pinterest_url=url,
+                    download_urls=download_urls,
+                    width=0,
+                    height=0,
+                    is_video=(media_type == 'video')
+                )
+            
+            return None
+            
         except Exception as e:
-            logger.debug(f"Scraping falló para {url}: {e}")
+            print(f"❌ Error en scraping: {e}")  # Debug
+            import traceback
+            traceback.print_exc()
             return None
 
     def _extract_og_tag(self, html: str, property_name: str) -> Optional[str]:
