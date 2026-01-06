@@ -8,8 +8,8 @@ from pathlib import Path
 # Token del bot de Telegram (OBTENER DE @BotFather)
 TELEGRAM_TOKEN = "8315169253:AAEHkDCqPayRQJxM6_isxBVf-7L4PFnrzkE"
 
-# Límite de tamaño en bytes (50MB)
-MAX_FILE_SIZE = 50 * 1024 * 1024
+# Límite de tamaño en bytes (1000MB)
+MAX_FILE_SIZE = 1000 * 1024 * 1024
 
 # Tiempo máximo de descarga en segundos
 DOWNLOAD_TIMEOUT = 300
@@ -119,10 +119,11 @@ MESSAGES = {
 • Posts (fotos y videos)
 • Stories públicas
 • IGTV videos
+• Pinterest posts (imágenes, videos, carruseles)
 
 ✨ **Características:**
 - No requiere login
-- Límite: 50MB
+- Límite: 1000MB por archivo
 - Totalmente gratuito
 - Rápido y confiable
 
@@ -146,12 +147,11 @@ Envía: `https://youtu.be/XXXXXXXXXXX`
 O: `https://www.youtube.com/watch?v=XXXXXXXXXXX`
 
 ⚠️ **Limitaciones:**
-• Máximo 50MB por archivo
+• Máximo 1000MB por archivo
 • Solo contenido público
 • Videos cortos funcionan mejor
 • Instagram puede bloquear descargas frecuentes
-• Máximo 50MB por archivo
-
+• Máximo 1000MB por archivo
 🔧 **Si tienes problemas:**
 1. Verifica que el link sea correcto
 2. Asegúrate que el video sea público
@@ -160,7 +160,7 @@ O: `https://www.youtube.com/watch?v=XXXXXXXXXXX`
 """,
 
     'processing': "⏳ Descargando y procesando...",
-    'too_large': "❌ El archivo es muy grande (>50MB). Intenta con un video más corto.",
+    'too_large': "❌ El archivo es muy grande (>1000MB). Intenta con un video más corto.",
     'error': "❌ Error: {error}",
     'success_tiktok': "✅ TikTok descargado correctamente!",
     'success_youtube': "✅ Audio de YouTube descargado correctamente!",

@@ -60,6 +60,14 @@ def validate_url(url: str) -> Tuple[bool, str]:
             if is_instagram:
                 return True, "instagram"
         
+        # Pinterest
+        if any(pin_domain in domain for pin_domain in ['pinterest.com', 'pin.it', 'pinterest.co.uk', 
+                                                      'pinterest.fr', 'pinterest.de', 'pinterest.ru']):
+            from ..downloaders.pinterest import PinterestDownloader
+            is_pinterest, _ = PinterestDownloader.is_pinterest_url(url)
+            if is_pinterest:
+                return True, "pinterest"
+        
         return False, "unsupported"
         
     except ImportError as e:
@@ -71,6 +79,9 @@ def validate_url(url: str) -> Tuple[bool, str]:
             return True, "youtube"
         elif 'instagram.com' in url.lower() or 'instagr.am' in url.lower():
             return True, "instagram"
+        elif any(pin_domain in url.lower() for pin_domain in ['pinterest.com', 'pin.it', 'pinterest.co.uk', 
+                                                              'pinterest.fr', 'pinterest.de', 'pinterest.ru']):
+            return True, "pinterest"
         return False, "error"
     except Exception as e:
         logger.error(f"Error validando URL {url}: {e}")

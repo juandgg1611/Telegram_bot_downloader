@@ -29,6 +29,13 @@ Un bot de Telegram profesional para descargar contenido de **TikTok, Instagram y
 - ✅ Interfaz con botones inline
 - ✅ Sin dependencia de FFmpeg
 
+### 📌 **Pinterest**
+
+- ✅ Imagenes, video y carruseles
+- ✅ Detección automática de tipo de contenido
+- ✅ Calidad optimizada (hasta 720p)
+- ✅ Limpieza automática de archivos temporales
+
 ## 🚀 Instalación Rápida
 
 ### 1. Requisitos previos

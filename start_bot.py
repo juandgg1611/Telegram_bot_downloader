@@ -16,8 +16,8 @@ def main():
     print("🚀 Iniciando Bot en Producción...")
     print("=" * 50)
     
-    # ✅ CORRECTO: Verificar variable de entorno por NOMBRE
-    token = os.getenv('TELEGRAM_TOKEN')  # <-- ¡¡¡CORREGIDO!!!
+    
+    token = os.getenv('TELEGRAM_TOKEN')  
     if not token:
         print("❌ ERROR: TELEGRAM_TOKEN no configurado")
         print("   Configúralo en Railway/Render como variable de entorno")
@@ -32,8 +32,6 @@ def main():
             with open(config_path, 'r', encoding='utf-8') as f:
                 content = f.read()
             
-            # Buscar y reemplazar cualquier token en config.py
-            # Esto es útil si tienes un token hardcodeado
             import re
             content = re.sub(r'BOT_TOKEN\s*=\s*["\'][^"\']*["\']', 
                            f'BOT_TOKEN = "{token}"', content)
@@ -44,7 +42,7 @@ def main():
         except Exception as e:
             print(f"⚠️  No se pudo actualizar config.py: {e}")
     
-    # Importar después de configurar
+    
     from src.bot import setup_application
     
     print("✅ Configuración completada")
@@ -53,7 +51,7 @@ def main():
     print("🤖 Iniciando bot de Telegram...")
     
     try:
-        # Crear y ejecutar aplicación
+        
         application, bot = setup_application()
         
         # Manejo de señales para producción
