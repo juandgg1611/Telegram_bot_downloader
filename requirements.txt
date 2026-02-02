@@ -19,3 +19,4 @@ colorlog==6.8.2
 aiofiles==23.2.1
 Flask==3.0.2
 gunicorn==21.2.0
+yt-dlp==2025.12.8
