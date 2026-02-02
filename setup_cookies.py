@@ -72,39 +72,51 @@ def check_important_cookies(cookies_path):
         with open(cookies_path, 'r', encoding='utf-8') as f:
             content = f.read()
         
-        important_cookies = [
-            'VISITOR_INFO1_LIVE',
-            'LOGIN_INFO',
-            '__Secure-1PSID',
-            '__Secure-3PSID',
-            'PREF'
-        ]
+        # Cookies CRÍTICAS para YouTube
+        critical_cookies = {
+            'LOGIN_INFO': 'Sesión activa de YouTube',
+            'SID': 'ID de sesión de Google',
+            '__Secure-1PSID': 'Cookie segura principal',
+            '__Secure-3PSID': 'Cookie segura secundaria',
+            'PREF': 'Preferencias del usuario',
+            'VISITOR_INFO1_LIVE': 'Info de visitante'
+        }
         
-        print("🔍 Verificando cookies importantes:")
-        found = []
-        missing = []
+        print("🔍 Verificando cookies CRÍTICAS:")
+        missing_critical = []
         
-        for cookie in important_cookies:
+        for cookie, desc in critical_cookies.items():
             if cookie in content:
-                found.append(cookie)
+                # Encontrar la línea de la cookie
+                lines = [l for l in content.split('\n') if cookie in l]
+                if lines:
+                    print(f"   ✅ {cookie}: {desc}")
+                    # Mostrar parte de la cookie
+                    cookie_line = lines[0]
+                    parts = cookie_line.split('\t')
+                    if len(parts) >= 7:
+                        value = parts[6]
+                        if len(value) > 20:
+                            print(f"        Valor: {value[:20]}...")
             else:
-                missing.append(cookie)
+                print(f"   ❌ {cookie}: FALTANTE ({desc})")
+                missing_critical.append(cookie)
         
-        if found:
-            print(f"   ✅ Presentes: {', '.join(found)}")
+        # Verificar si hay suficientes cookies
+        total_cookies = len([l for l in content.split('\n') if l.strip() and not l.startswith('#')])
+        print(f"\n📊 Resumen: {total_cookies} cookies totales")
         
-        if missing:
-            print(f"   ⚠️  Faltantes: {', '.join(missing)}")
-            print("   Nota: Algunas cookies pueden tener nombres diferentes")
-        
-        # Verificar si hay sesión activa
-        if 'LOGIN_INFO' in content:
-            print("   👤 Sesión de YouTube: ACTIVA (usuario logueado)")
+        if missing_critical:
+            print(f"\n⚠️  ADVERTENCIA: Faltan {len(missing_critical)} cookies críticas")
+            print("   Las cookies pueden estar expiradas o incompletas")
+            return False
         else:
-            print("   👤 Sesión de YouTube: NO detectada")
+            print("✅ Todas las cookies críticas están presentes")
+            return True
             
     except Exception as e:
         print(f"   ❌ Error al verificar cookies: {e}")
+        return False
 
 def test_cookies():
     """Prueba rápida de las cookies"""
