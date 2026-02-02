@@ -1,47 +1,26 @@
 #!/usr/bin/env python3
 """
-Script principal para Render
+Script principal para Railway/Render
 """
 import os
 import sys
 import signal
 import asyncio
 from pathlib import Path
-from threading import Thread
-from flask import Flask
 
 # Añadir src al path
 sys.path.insert(0, str(Path(__file__).parent / 'src'))
 
-# Flask app para mantener el servicio activo
-web_app = Flask(__name__)
-
-@web_app.route('/')
-def health_check():
-    return "🤖 Bot de Telegram funcionando correctamente"
-
-@web_app.route('/health')
-def health():
-    return {"status": "healthy", "service": "telegram-bot-downloader"}
-
-def run_flask():
-    port = int(os.getenv('PORT', 8080))
-    web_app.run(host='0.0.0.0', port=port, debug=False)
-
 def main():
-    """Función principal para Render"""
-    print("🚀 Iniciando Bot en Render...")
+    """Función principal para entornos de producción"""
+    print("🚀 Iniciando Bot en Producción...")
     print("=" * 50)
     
-    # Iniciar Flask en un thread separado
-    flask_thread = Thread(target=run_flask, daemon=True)
-    flask_thread.start()
-    print("✅ Servidor Flask iniciado en segundo plano")
     
     token = os.getenv('TELEGRAM_TOKEN')  
     if not token:
         print("❌ ERROR: TELEGRAM_TOKEN no configurado")
-        print("   Configúralo en Render como variable de entorno")
+        print("   Configúralo en Railway/Render como variable de entorno")
         sys.exit(1)
     
     print(f"✅ Token encontrado (primeros 10 chars): {token[:10]}...")
@@ -63,6 +42,7 @@ def main():
         except Exception as e:
             print(f"⚠️  No se pudo actualizar config.py: {e}")
     
+    
     from src.bot import setup_application
     
     print("✅ Configuración completada")
@@ -71,31 +51,27 @@ def main():
     print("🤖 Iniciando bot de Telegram...")
     
     try:
-        # Configurar el bot
+        
         application, bot = setup_application()
         
         # Manejo de señales para producción
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
         def signal_handler(signum, frame):
             print(f"\n📶 Señal {signum} recibida, cerrando bot...")
-            if application.running:
-                application.stop()
+            loop.stop()
             sys.exit(0)
         
         signal.signal(signal.SIGINT, signal_handler)
         signal.signal(signal.SIGTERM, signal_handler)
         
         # Ejecutar
-        print("🔄 Inicializando bot (polling)...")
-        print("📢 Bot listo para recibir mensajes")
-        print("🌐 Servidor web activo en:", f"http://0.0.0.0:{os.getenv('PORT', 8080)}")
-        print("=" * 50)
+        print("🔄 Inicializando bot...")
+        application.run_polling()
         
-        application.run_polling(drop_pending_updates=True)
-        
-    except KeyboardInterrupt:
-        print("\n👋 Bot detenido por el usuario")
     except Exception as e:
-        print(f"❌ Error fatal: {e}")
+        print(f"❌ Error fatal en producción: {e}")
         import traceback
         traceback.print_exc()
         sys.exit(1)
