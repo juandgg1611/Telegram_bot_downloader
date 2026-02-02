@@ -10,35 +10,75 @@ from pathlib import Path
 from threading import Thread
 from flask import Flask
 
-# Añadir src al path
-sys.path.insert(0, str(Path(__file__).parent / 'src'))
+# ========== CONFIGURACIÓN DE COOKIES (AL INICIO) ==========
+print("=" * 50)
+print("🤖 INICIANDO BOT DE TELEGRAM - CONFIGURACIÓN")
+print("=" * 50)
 
-# Flask app para mantener el servicio activo
+# Añadir directorio actual al path
+sys.path.insert(0, str(Path(__file__).parent))
+
+# Configurar cookies de YouTube
+try:
+    from setup_cookies import setup_youtube_cookies
+    cookies_ok = setup_youtube_cookies()
+    
+    if not cookies_ok:
+        print("\n⚠️  CONTINUANDO SIN COOKIES ÓPTIMAS")
+        print("   Algunos videos pueden fallar en la descarga")
+    else:
+        print("\n✅ COOKIES CONFIGURADAS CORRECTAMENTE")
+        
+except ImportError as e:
+    print(f"❌ No se pudo importar setup_cookies: {e}")
+    print("   Asegúrate de que setup_cookies.py esté en la raíz del proyecto")
+except Exception as e:
+    print(f"❌ Error inesperado configurando cookies: {e}")
+
+print("=" * 50)
+# ========== FIN CONFIGURACIÓN DE COOKIES ==========
+
+# Resto de tu configuración...
 web_app = Flask(__name__)
 
 @web_app.route('/')
 def health_check():
-    return "🤖 Bot de Telegram funcionando correctamente"
+    return "🤖 Bot de Telegram funcionando con cookies de YouTube"
 
-@web_app.route('/health')
-def health():
-    return {"status": "healthy", "service": "telegram-bot-downloader"}
+@web_app.route('/cookies-status')
+def cookies_status():
+    """Endpoint para verificar estado de cookies"""
+    cookies_path = Path("cookies.txt")
+    if cookies_path.exists():
+        try:
+            with open(cookies_path, 'r') as f:
+                lines = f.readlines()
+                cookie_count = len([l for l in lines if l.strip() and not l.startswith('#')])
+            return {
+                "status": "active",
+                "cookies_file": True,
+                "cookie_count": cookie_count,
+                "file_size": cookies_path.stat().st_size
+            }
+        except:
+            return {"status": "error", "cookies_file": True}
+    else:
+        return {"status": "no_cookies", "cookies_file": False}
 
 def run_flask():
     port = int(os.getenv('PORT', 8080))
-    web_app.run(host='0.0.0.0', port=port, debug=False)
+    print(f"🌐 Iniciando servidor Flask en puerto {port}...")
+    web_app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
 
 def main():
-    """Función principal para Render"""
-    print("🚀 Iniciando Bot en Render...")
-    print("=" * 50)
-    
+    """Función principal"""
     # Iniciar Flask en un thread separado
     flask_thread = Thread(target=run_flask, daemon=True)
     flask_thread.start()
-    print("✅ Servidor Flask iniciado en segundo plano")
     
-    token = os.getenv('TELEGRAM_TOKEN')  
+    # Verificar token de Telegram
+    token = os.getenv('TELEGRAM_TOKEN') 
+    
     if not token:
         print("❌ ERROR: TELEGRAM_TOKEN no configurado")
         print("   Configúralo en Render como variable de entorno")
@@ -46,35 +86,18 @@ def main():
     
     print(f"✅ Token encontrado (primeros 10 chars): {token[:10]}...")
     
-    # Si necesitas actualizar config.py con el token
-    config_path = Path(__file__).parent / 'src' / 'config.py'
-    if config_path.exists():
-        try:
-            with open(config_path, 'r', encoding='utf-8') as f:
-                content = f.read()
-            
-            import re
-            content = re.sub(r'BOT_TOKEN\s*=\s*["\'][^"\']*["\']', 
-                           f'BOT_TOKEN = "{token}"', content)
-            
-            with open(config_path, 'w', encoding='utf-8') as f:
-                f.write(content)
-            print("✅ Token actualizado en config.py")
-        except Exception as e:
-            print(f"⚠️  No se pudo actualizar config.py: {e}")
-    
-    from src.bot import setup_application
-    
-    print("✅ Configuración completada")
-    print(f"📁 Directorio: {Path(__file__).parent.absolute()}")
-    print("=" * 50)
-    print("🤖 Iniciando bot de Telegram...")
-    
+    # Importar y configurar el bot
     try:
-        # Configurar el bot
+        # Asegurar que podemos importar desde src
+        sys.path.insert(0, str(Path(__file__).parent / 'src'))
+        from bot import setup_application
+        
         application, bot = setup_application()
         
-        # Manejo de señales para producción
+        print("✅ Configuración completada")
+        print("🤖 Iniciando bot de Telegram (polling)...")
+        
+        # Manejo de señales
         def signal_handler(signum, frame):
             print(f"\n📶 Señal {signum} recibida, cerrando bot...")
             if application.running:
@@ -84,16 +107,9 @@ def main():
         signal.signal(signal.SIGINT, signal_handler)
         signal.signal(signal.SIGTERM, signal_handler)
         
-        # Ejecutar
-        print("🔄 Inicializando bot (polling)...")
-        print("📢 Bot listo para recibir mensajes")
-        print("🌐 Servidor web activo en:", f"http://0.0.0.0:{os.getenv('PORT', 8080)}")
-        print("=" * 50)
+        # Ejecutar bot
+        application.run_polling(drop_pending_updates=True, allowed_updates=["message", "callback_query"])
         
-        application.run_polling(drop_pending_updates=True)
-        
-    except KeyboardInterrupt:
-        print("\n👋 Bot detenido por el usuario")
     except Exception as e:
         print(f"❌ Error fatal: {e}")
         import traceback

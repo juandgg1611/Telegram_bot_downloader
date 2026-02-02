@@ -102,6 +102,16 @@ class YouTubeDownloader:
             'nooverwrites': True,
         }
         
+        # ========== AGREGAR SOPORTE PARA COOKIES ==========
+        # Verificar si existe archivo de cookies
+        cookies_path = 'cookies.txt'
+        if os.path.exists(cookies_path):
+            self.base_opts['cookiefile'] = cookies_path
+            logger.info(f"✅ Usando cookies de YouTube desde: {cookies_path}")
+        else:
+            logger.info("ℹ️  No se encontró archivo cookies.txt para YouTube")
+        # ========== FIN AGREGAR COOKIES ==========
+        
         logger.info(f"YouTubeDownloader inicializado con calidad: {self.default_quality}")
     
     # ============================================================================
@@ -206,12 +216,20 @@ class YouTubeDownloader:
     
     def _get_video_info_structured(self, url: str) -> YouTubeVideoInfo:
         """Obtener información estructurada del video"""
+        # ========== AGREGAR COOKIES PARA OBTENER INFO ==========
+        info_opts = {
+            'quiet': True,
+            'no_warnings': True,
+            'extract_flat': False,
+        }
+        
+        # Añadir cookies si existen
+        if os.path.exists('cookies.txt'):
+            info_opts['cookiefile'] = 'cookies.txt'
+        # ========== FIN AGREGAR COOKIES ==========
+        
         try:
-            with yt_dlp.YoutubeDL({
-                'quiet': True,
-                'no_warnings': True,
-                'extract_flat': False,
-            }) as ydl:
+            with yt_dlp.YoutubeDL(info_opts) as ydl:
                 info = ydl.extract_info(url, download=False)
                 
                 if not info:
@@ -241,8 +259,15 @@ class YouTubeDownloader:
     
     def get_available_formats(self, url: str) -> List[Dict[str, Any]]:
         """Obtener lista de formatos disponibles"""
+        # ========== AGREGAR COOKIES PARA OBTENER FORMATOS ==========
+        formats_opts = {'quiet': True, 'no_warnings': True}
+        
+        if os.path.exists('cookies.txt'):
+            formats_opts['cookiefile'] = 'cookies.txt'
+        # ========== FIN AGREGAR COOKIES ==========
+        
         try:
-            with yt_dlp.YoutubeDL({'quiet': True, 'no_warnings': True}) as ydl:
+            with yt_dlp.YoutubeDL(formats_opts) as ydl:
                 info = ydl.extract_info(url, download=False)
                 
                 formats = []

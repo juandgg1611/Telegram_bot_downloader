@@ -5,8 +5,14 @@ from pathlib import Path
 # CONFIGURACIÓN BÁSICA
 # ============================================================================
 
-# Token del bot de Telegram (OBTENER DE @BotFather)
-TELEGRAM_TOKEN = "8315169253:AAEHkDCqPayRQJxM6_isxBVf-7L4PFnrzkE"
+# Token del bot de Telegram - LEER DESDE VARIABLE DE ENTORNO
+TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN') or os.getenv('BOT_TOKEN')
+
+# Si no está en entorno, usar el token por defecto SOLO para desarrollo local
+if not TELEGRAM_TOKEN:
+    print("⚠️  ADVERTENCIA: Usando token hardcodeado (SOLO PARA DESARROLLO LOCAL)")
+    print("   Para producción, configura TELEGRAM_TOKEN en Render")
+    TELEGRAM_TOKEN = "8315169253:AAEHkDCqPayRQJxM6_isxBVf-7L4PFnrzkE"
 
 # Límite de tamaño en bytes (1000MB)
 MAX_FILE_SIZE = 1000 * 1024 * 1024
