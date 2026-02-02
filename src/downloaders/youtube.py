@@ -807,7 +807,195 @@ class YouTubeDownloader:
                     'channel': video_info.channel,
                 }
             }
+        
             
         except Exception as e:
             logger.error(f"Error obteniendo opciones: {e}")
             return {'video': {'count': 0}, 'audio': {'count': 0}}
+
+    # ============================================================================
+    # MÉTODOS PARA PO TOKEN/VISITOR DATA
+    # ============================================================================
+    
+    def _extract_visitor_data(self) -> Optional[str]:
+        """Extraer VISITOR_INFO1_LIVE de cookies.txt"""
+        cookies_path = 'cookies.txt'
+        if not os.path.exists(cookies_path):
+            return None
+        
+        try:
+            with open(cookies_path, 'r', encoding='utf-8') as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith('#') and 'VISITOR_INFO1_LIVE' in line:
+                        parts = line.split('\t')
+                        if len(parts) >= 7:
+                            return parts[6]  # El valor de la cookie
+            return None
+        except Exception as e:
+            logger.error(f"Error extrayendo visitor data: {e}")
+            return None
+    
+    def download_audio_with_visitor_data(self, url: str, format: str = 'm4a') -> Tuple[str, Dict[str, Any]]:
+        """
+        Descargar usando Visitor Data en lugar de cookies completas
+        Según: https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies
+        """
+        if not self.is_youtube_url(url):
+            raise ValueError("URL de YouTube no válida")
+        
+        video_id = self.extract_video_id(url)
+        logger.info(f"Descargando audio {video_id} con Visitor Data")
+        
+        # Extraer visitor data
+        visitor_data = self._extract_visitor_data()
+        
+        if not visitor_data:
+            raise ValueError("No se pudo extraer VISITOR_INFO1_LIVE de cookies.txt")
+        
+        print(f"🔐 Usando Visitor Data: {visitor_data[:20]}...")
+        
+        # Configuración especial para Visitor Data
+        ydl_opts = {
+            'quiet': True,
+            'no_warnings': True,
+            'no_color': True,
+            'socket_timeout': 30,
+            'retries': 5,
+            'fragment_retries': 5,
+            'skip_unavailable_fragments': True,
+            'extract_flat': False,
+            'concurrent_fragment_downloads': 1,
+            'http_chunk_size': 10485760,
+            'continuedl': True,
+            'noprogress': True,
+            'outtmpl': os.path.join(DOWNLOAD_DIR, f'youtube_visitor_{video_id}_%(title).50s.%(ext)s'),
+            'restrictfilenames': True,
+            'windowsfilenames': True,
+            'nooverwrites': True,
+            
+            # Formato de audio
+            'format': 'bestaudio[ext=m4a]/bestaudio',
+            
+            # ========== CONFIGURACIÓN PARA VISITOR DATA ==========
+            'extractor_args': {
+                'youtube': {
+                    'player_client': ['mweb', 'android'],
+                    'player_skip': ['webpage', 'configs'],
+                    'visitor_data': visitor_data,
+                }
+            },
+            
+            # Headers optimizados
+            'http_headers': {
+                'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Accept-Encoding': 'gzip, deflate',
+                'X-YouTube-Client-Name': '2',
+                'X-YouTube-Client-Version': '2.20250101.00.00',
+                'Origin': 'https://www.youtube.com',
+                'Referer': 'https://m.youtube.com/',
+                'DNT': '1',
+                'Connection': 'keep-alive',
+            },
+            
+            # Comportamiento conservador
+            'sleep_interval': 3,
+            'max_sleep_interval': 6,
+            'retry_sleep': 5,
+        }
+        
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                # Extraer información primero
+                info = ydl.extract_info(url, download=False)
+                
+                if not info:
+                    raise ValueError("No se pudo obtener información del video")
+                
+                print(f"📋 Título: {info.get('title', 'Desconocido')}")
+                print(f"⏱ Duración: {info.get('duration', 0)}s")
+                
+                # Descargar
+                ydl.download([url])
+                
+                # Buscar archivo
+                pattern = os.path.join(DOWNLOAD_DIR, f"*{video_id}*")
+                import glob
+                files = glob.glob(pattern)
+                
+                if not files:
+                    raise FileNotFoundError("No se encontró archivo descargado")
+                
+                filepath = files[0]
+                
+                # Asegurar extensión .m4a
+                if not filepath.endswith('.m4a'):
+                    base_name = os.path.splitext(filepath)[0]
+                    m4a_file = base_name + '.m4a'
+                    if os.path.exists(filepath):
+                        shutil.move(filepath, m4a_file)
+                        filepath = m4a_file
+                
+                logger.info(f"✅ Audio descargado con Visitor Data: {filepath}")
+                
+                return filepath, {
+                    'id': video_id,
+                    'title': info.get('title', 'Audio')[:100],
+                    'channel': info.get('uploader', 'YouTube'),
+                    'duration': info.get('duration', 0),
+                    'filesize': os.path.getsize(filepath),
+                    'platform': 'youtube',
+                    'content_type': 'audio',
+                    'format': format,
+                    'method': 'visitor_data',
+                }
+                
+        except yt_dlp.utils.DownloadError as e:
+            error_msg = str(e)
+            logger.error(f"Error con Visitor Data: {error_msg}")
+            
+            # Si falla, probar método alternativo
+            if "Sign in to confirm you're not a bot" in error_msg:
+                raise Exception("Visitor Data no funcionó. Necesitas PO Token real.")
+            else:
+                raise Exception(f"Error descargando con Visitor Data: {error_msg}")
+                
+        except Exception as e:
+            logger.error(f"Error inesperado: {e}")
+            raise
+    
+    def download_audio_with_retry(self, url: str, format: str = 'm4a', max_retries: int = 3) -> Tuple[str, Dict[str, Any]]:
+        """
+        Sistema de reintentos inteligente
+        1. Primero intenta con Visitor Data
+        2. Si falla, intenta con cookies normales
+        3. Si falla, intenta método básico
+        """
+        video_id = self.extract_video_id(url)
+        print(f"🔄 Sistema de reintentos para: {video_id}")
+        
+        methods = [
+            ("Visitor Data", self.download_audio_with_visitor_data),
+            ("Cookies forzadas", self.download_with_forced_cookies),
+            ("Método normal", self.download_audio),
+        ]
+        
+        last_error = None
+        
+        for method_name, method_func in methods:
+            try:
+                print(f"🔄 Intentando con: {method_name}")
+                return method_func(url, format)
+            except Exception as e:
+                error_msg = str(e)
+                print(f"❌ {method_name} falló: {error_msg[:100]}")
+                last_error = e
+                
+                # Esperar antes de intentar siguiente método
+                time.sleep(2)
+                continue
+        
+        # Si todos los métodos fallaron
+        raise Exception(f"Todos los métodos fallaron para {video_id}. Último error: {last_error}")
