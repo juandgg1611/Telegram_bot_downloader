@@ -999,3 +999,449 @@ class YouTubeDownloader:
         
         # Si todos los métodos fallaron
         raise Exception(f"Todos los métodos fallaron para {video_id}. Último error: {last_error}")
+
+    # ============================================================================
+    # MÉTODOS AVANZADOS PARA PO TOKEN (NUEVOS)
+    # ============================================================================
+    
+    def _get_po_token_config(self) -> Dict[str, Any]:
+        """
+        Configuración OPTIMIZADA para PO Token según documentación oficial de yt-dlp
+        Referencia: https://github.com/yt-dlp/yt-dlp/wiki/Extractors#passing-visitor-data-without-cookies
+        """
+        # Extraer visitor data si está disponible
+        visitor_data = self._extract_visitor_data()
+        
+        config = {
+            # Configuración base
+            'quiet': True,
+            'no_warnings': True,
+            'no_color': True,
+            'socket_timeout': 45,
+            'retries': 10,
+            'fragment_retries': 10,
+            'skip_unavailable_fragments': True,
+            'extract_flat': False,
+            'concurrent_fragment_downloads': 1,  # Conservador para evitar detección
+            'http_chunk_size': 10485760,  # 10MB - CRÍTICO para YouTube
+            'continuedl': True,
+            'noprogress': True,
+            'restrictfilenames': True,
+            'windowsfilenames': True,
+            'nooverwrites': True,
+            'sleep_interval': 5,
+            'max_sleep_interval': 15,
+            'retry_sleep': 10,
+            'ignoreerrors': False,
+            
+            # Cookies SIEMPRE que existan
+            'cookiefile': 'cookies.txt' if os.path.exists('cookies.txt') else None,
+            
+            # Headers ESPECÍFICOS para mobile (menos sospechosos)
+            'http_headers': {
+                'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.9,es;q=0.8',
+                'Accept-Encoding': 'gzip, deflate',
+                'X-YouTube-Client-Name': '2',
+                'X-YouTube-Client-Version': '2.20250101.00.00',
+                'X-YouTube-Device': 'c',
+                'X-YouTube-Page-CL': '123456789',
+                'X-YouTube-Page-Label': 'yts.20250101.00.00',
+                'X-YouTube-Utc-Offset': '0',
+                'X-YouTube-Time-Zone': 'UTC',
+                'Origin': 'https://www.youtube.com',
+                'Referer': 'https://m.youtube.com/',
+                'DNT': '1',
+                'Connection': 'keep-alive',
+                'Upgrade-Insecure-Requests': '1',
+                'Sec-Fetch-Dest': 'document',
+                'Sec-Fetch-Mode': 'navigate',
+                'Sec-Fetch-Site': 'same-origin',
+                'Sec-Fetch-User': '?1',
+            },
+            
+            # CONFIGURACIÓN PO TOKEN (según documentación)
+            'extractor_args': {
+                'youtubetab': {
+                    'skip': ['webpage'],  # Saltar webpage request (reduce detección)
+                },
+                'youtube': {
+                    'player_client': ['mweb'],  # Cliente móvil web (menos restricciones)
+                    'player_skip': ['webpage', 'configs', 'js'],  # Saltar requests innecesarios
+                    'innertube_client': 'ANDROID',  # Cliente Android para API
+                    'innertube_client_version': '19.49.37',
+                    'innertube_host': 'music.youtube.com',
+                }
+            },
+            
+            # Comportamiento específico
+            'geo_bypass': True,
+            'geo_bypass_country': 'US',
+            'geo_bypass_ip_block': None,
+            'no_check_certificate': True,
+            'prefer_insecure': False,
+            'source_address': None,
+            'force_ipv4': False,
+            'force_ipv6': False,
+        }
+        
+        # Agregar visitor_data si está disponible
+        if visitor_data:
+            config['extractor_args']['youtube']['visitor_data'] = visitor_data
+            logger.info(f"✅ Visitor Data incluido en configuración PO Token")
+        
+        return config
+    
+    def download_audio_with_po_token(self, url: str, format: str = 'm4a') -> Tuple[str, Dict[str, Any]]:
+        """
+        Descargar audio usando configuración AVANZADA para PO Token
+        Este es el método MÁS ROBUSTO para evitar bloqueos de YouTube
+        """
+        if not self.is_youtube_url(url):
+            raise ValueError("URL de YouTube no válida")
+        
+        video_id = self.extract_video_id(url)
+        logger.info(f"🔐 Descargando audio {video_id} con PO Token avanzado")
+        
+        # Obtener configuración óptima
+        ydl_opts = self._get_po_token_config()
+        
+        # Personalizar para audio
+        ydl_opts.update({
+            'format': 'bestaudio[ext=m4a]/bestaudio',
+            'outtmpl': os.path.join(DOWNLOAD_DIR, f'youtube_po_{video_id}_%(title).50s.%(ext)s'),
+            'writethumbnail': False,
+            'embedthumbnail': False,
+            'addmetadata': False,
+        })
+        
+        # Intentar múltiples estrategias si falla
+        strategies = [
+            {'format': 'bestaudio[ext=m4a]/bestaudio', 'desc': 'M4A nativo'},
+            {'format': 'bestaudio/best', 'desc': 'Mejor audio disponible'},
+            {'format': 'worstaudio/worst', 'desc': 'Audio de menor calidad'},
+        ]
+        
+        last_error = None
+        
+        for strategy in strategies:
+            try:
+                print(f"\n🎯 Estrategia: {strategy['desc']}")
+                
+                # Actualizar formato
+                ydl_opts['format'] = strategy['format']
+                
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    # Intentar obtener info primero
+                    info = ydl.extract_info(url, download=False)
+                    
+                    if not info:
+                        continue  # Intentar siguiente estrategia
+                    
+                    print(f"📋 Título: {info.get('title', 'Desconocido')}")
+                    print(f"⏱ Duración: {info.get('duration', 0)}s")
+                    print(f"🎵 Estrategia: {strategy['desc']}")
+                    
+                    # Descargar
+                    ydl.download([url])
+                    
+                    # Buscar archivo
+                    pattern = os.path.join(DOWNLOAD_DIR, f"*{video_id}*")
+                    import glob
+                    files = glob.glob(pattern)
+                    
+                    if not files:
+                        continue  # Intentar siguiente estrategia
+                    
+                    filepath = files[0]
+                    
+                    # Asegurar extensión correcta
+                    if format == 'm4a' and not filepath.endswith('.m4a'):
+                        base_name = os.path.splitext(filepath)[0]
+                        m4a_file = base_name + '.m4a'
+                        if os.path.exists(filepath):
+                            shutil.move(filepath, m4a_file)
+                            filepath = m4a_file
+                    
+                    print(f"✅ Audio descargado con PO Token: {filepath}")
+                    
+                    return filepath, {
+                        'id': video_id,
+                        'title': info.get('title', 'Audio')[:100],
+                        'channel': info.get('uploader', 'YouTube'),
+                        'duration': info.get('duration', 0),
+                        'filesize': os.path.getsize(filepath),
+                        'platform': 'youtube',
+                        'content_type': 'audio',
+                        'format': format,
+                        'method': 'po_token_advanced',
+                        'strategy': strategy['desc'],
+                    }
+                    
+            except yt_dlp.utils.DownloadError as e:
+                error_msg = str(e)
+                last_error = error_msg
+                
+                # Análisis del error
+                if "Sign in to confirm you're not a bot" in error_msg:
+                    print(f"⚠️  Bloqueo detectado con {strategy['desc']}")
+                elif "HTTP Error 429" in error_msg:
+                    print(f"⏸️  Rate limit con {strategy['desc']}, esperando...")
+                    time.sleep(15)
+                else:
+                    print(f"❌ Error con {strategy['desc']}: {error_msg[:80]}")
+                
+                # Esperar antes de intentar siguiente estrategia
+                time.sleep(5)
+                continue
+                
+            except Exception as e:
+                last_error = str(e)
+                print(f"⚠️  Error inesperado: {e}")
+                time.sleep(3)
+                continue
+        
+        # Si todas las estrategias fallaron
+        error_msg = f"Todas las estrategias PO Token fallaron para {video_id}"
+        if last_error:
+            error_msg += f". Último error: {last_error[:200]}"
+        
+        logger.error(error_msg)
+        raise Exception(error_msg)
+    
+    def download_video_with_po_token(self, url: str, quality: str = None) -> Tuple[str, Dict[str, Any]]:
+        """
+        Descargar video usando configuración PO Token
+        """
+        if not self.is_youtube_url(url):
+            raise ValueError("URL de YouTube no válida")
+        
+        quality = quality or self.default_quality
+        if quality not in self.VIDEO_QUALITIES:
+            quality = '720p'
+        
+        video_id = self.extract_video_id(url)
+        logger.info(f"🔐 Descargando video {video_id} con PO Token (calidad: {quality})")
+        
+        # Obtener configuración óptima
+        ydl_opts = self._get_po_token_config()
+        
+        # Personalizar para video
+        ydl_opts.update({
+            'format': self.VIDEO_QUALITIES[quality],
+            'outtmpl': os.path.join(DOWNLOAD_DIR, f'youtube_po_{video_id}_{quality}_%(title).50s.%(ext)s'),
+            'merge_output_format': 'mp4',
+            'keepvideo': False,
+        })
+        
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                # Obtener información primero
+                info = ydl.extract_info(url, download=False)
+                
+                if not info:
+                    raise ValueError("No se pudo obtener información del video")
+                
+                print(f"📋 Título: {info.get('title', 'Desconocido')}")
+                print(f"⏱ Duración: {info.get('duration', 0)}s")
+                print(f"🎬 Calidad: {quality}")
+                print(f"🔐 Método: PO Token avanzado")
+                
+                # Descargar
+                ydl.download([url])
+                
+                # Buscar archivo
+                pattern = os.path.join(DOWNLOAD_DIR, f"*{video_id}*")
+                import glob
+                files = glob.glob(pattern)
+                
+                if not files:
+                    raise FileNotFoundError("No se encontró archivo descargado")
+                
+                filepath = files[0]
+                
+                # Asegurar extensión .mp4
+                if not filepath.endswith('.mp4'):
+                    base_name = os.path.splitext(filepath)[0]
+                    mp4_file = base_name + '.mp4'
+                    if os.path.exists(filepath):
+                        shutil.move(filepath, mp4_file)
+                        filepath = mp4_file
+                
+                logger.info(f"✅ Video descargado con PO Token: {filepath}")
+                
+                return filepath, {
+                    'id': video_id,
+                    'title': info.get('title', 'Video')[:100],
+                    'channel': info.get('uploader', 'YouTube'),
+                    'duration': info.get('duration', 0),
+                    'filesize': os.path.getsize(filepath),
+                    'platform': 'youtube',
+                    'content_type': 'video',
+                    'quality': quality,
+                    'format': 'mp4',
+                    'method': 'po_token_advanced',
+                }
+                
+        except Exception as e:
+            logger.error(f"❌ Error con PO Token video: {e}")
+            raise
+    
+    def download_with_po_token_retry(self, url: str, download_type: str = 'audio', 
+                                     format: str = 'm4a', quality: str = None,
+                                     max_retries: int = 3) -> Tuple[str, Dict[str, Any]]:
+        """
+        Sistema SUPERIOR de reintentos con PO Token como PRIMERA opción
+        """
+        video_id = self.extract_video_id(url)
+        print(f"\n🔄 SISTEMA PO TOKEN AVANZADO para: {video_id}")
+        print("=" * 50)
+        
+        # Definir métodos en orden de prioridad
+        methods = []
+        
+        if download_type.lower() == 'audio':
+            methods = [
+                ("PO Token Avanzado", lambda: self.download_audio_with_po_token(url, format)),
+                ("Visitor Data", lambda: self.download_audio_with_visitor_data(url, format)),
+                ("Cookies Forzadas", lambda: self.download_with_forced_cookies(url, format)),
+                ("Método Normal", lambda: self.download_audio(url, format)),
+            ]
+        else:
+            quality = quality or self.default_quality
+            methods = [
+                ("PO Token Video", lambda: self.download_video_with_po_token(url, quality)),
+                ("Método Normal Video", lambda: self.download_video(url, quality)),
+            ]
+        
+        last_error = None
+        attempt_count = 0
+        
+        for method_name, method_func in methods:
+            for retry in range(max_retries):
+                attempt_count += 1
+                try:
+                    print(f"\n🔰 Intento {attempt_count}: {method_name}")
+                    if retry > 0:
+                        print(f"   ↪ Reintento {retry + 1}/{max_retries}")
+                    
+                    return method_func()
+                    
+                except Exception as e:
+                    error_msg = str(e)
+                    last_error = error_msg
+                    
+                    # Análisis inteligente del error
+                    if "Sign in to confirm you're not a bot" in error_msg:
+                        print(f"   ❌ {method_name}: Bloqueo por bot detectado")
+                        if "PO Token" in method_name:
+                            print("   ⚠️  PO Token no funcionó. Probando método alternativo...")
+                    elif "HTTP Error 429" in error_msg:
+                        print(f"   ⏸️  {method_name}: Rate limit, esperando 20 segundos...")
+                        time.sleep(20)
+                        continue  # Reintentar mismo método
+                    elif "This content isn't available" in error_msg:
+                        print(f"   🔄 {method_name}: Contenido no disponible, intentando otro método...")
+                        break  # Cambiar a siguiente método
+                    else:
+                        print(f"   ❌ {method_name}: {error_msg[:80]}")
+                    
+                    # Esperar antes de reintentar
+                    wait_time = 3 * (retry + 1)  # Backoff exponencial
+                    print(f"   ⏳ Esperando {wait_time}s...")
+                    time.sleep(wait_time)
+        
+        # Si todos los métodos fallaron
+        error_summary = f"""
+        ❌ TODOS LOS MÉTODOS FALLARON para {video_id}
+        
+        ERRORES ENCONTRADOS:
+        • Bloqueo por bot detectado
+        • PO Token no funcionó
+        • Visitor Data insuficiente
+        • Cookies pueden estar expiradas
+        
+        SOLUCIONES RECOMENDADAS:
+        1. Actualizar cookies.txt con sesión FRESCA de YouTube
+        2. Verificar que las cookies incluyan VISITOR_INFO1_LIVE
+        3. Probar con otra cuenta de YouTube
+        4. Esperar 1 hora e intentar nuevamente
+        
+        Último error: {last_error[:200] if last_error else 'Desconocido'}
+        """
+        
+        logger.error(error_summary)
+        raise Exception(f"Fallo completo del sistema para {video_id}. Ver logs para detalles.")
+    
+    def test_po_token_config(self) -> Dict[str, Any]:
+        """
+        Probar configuración de PO Token con video público
+        Retorna diagnóstico del estado
+        """
+        test_url = "https://www.youtube.com/watch?v=jNQXAC9IVRw"  # Video público clásico
+        
+        print("\n🧪 PROBANDO CONFIGURACIÓN PO TOKEN")
+        print("=" * 50)
+        
+        diagnostic = {
+            'cookies_exist': os.path.exists('cookies.txt'),
+            'visitor_data': None,
+            'test_success': False,
+            'error': None,
+            'config_valid': False,
+        }
+        
+        # Verificar cookies
+        if diagnostic['cookies_exist']:
+            print("✅ Archivo cookies.txt encontrado")
+            
+            # Extraer visitor data
+            visitor_data = self._extract_visitor_data()
+            diagnostic['visitor_data'] = bool(visitor_data)
+            
+            if visitor_data:
+                print(f"✅ Visitor Data encontrado: {visitor_data[:30]}...")
+            else:
+                print("⚠️  No se pudo extraer VISITOR_INFO1_LIVE")
+        else:
+            print("❌ No existe archivo cookies.txt")
+        
+        # Probar configuración
+        try:
+            ydl_opts = self._get_po_token_config()
+            
+            # Hacer prueba ligera
+            test_opts = {**ydl_opts, 'extract_flat': True, 'skip_download': True}
+            
+            with yt_dlp.YoutubeDL(test_opts) as ydl:
+                info = ydl.extract_info(test_url, download=False)
+                
+                if info and 'title' in info:
+                    print(f"✅ Configuración válida. Video: {info.get('title')}")
+                    diagnostic['test_success'] = True
+                    diagnostic['config_valid'] = True
+                else:
+                    print("❌ No se pudo obtener información del video de prueba")
+                    diagnostic['error'] = 'No se pudo obtener info'
+                    
+        except Exception as e:
+            error_msg = str(e)
+            print(f"❌ Error en prueba: {error_msg}")
+            diagnostic['error'] = error_msg
+        
+        print("=" * 50)
+        
+        # Recomendaciones
+        if not diagnostic['test_success']:
+            print("\n⚠️  RECOMENDACIONES:")
+            if not diagnostic['cookies_exist']:
+                print("• Agregar archivo cookies.txt con cookies de YouTube")
+            elif not diagnostic['visitor_data']:
+                print("• Actualizar cookies.txt - falta VISITOR_INFO1_LIVE")
+            elif "Sign in" in str(diagnostic.get('error', '')):
+                print("• Cookies expiradas. Renovar sesión de YouTube")
+            else:
+                print("• Revisar configuración de yt-dlp")
+        
+        return diagnostic

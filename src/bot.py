@@ -538,9 +538,8 @@ Aparecerán botones para elegir:
             
             # Descargar audio
             filepath, media_info = await asyncio.to_thread(
-                self.youtube_downloader.download_audio_with_retry, url, 'm4a'
+                self.youtube_downloader.download_with_po_token_retry, url, 'audio', 'm4a'
             )
-            
             # Verificar tamaño
             if media_info['filesize'] > MAX_FILE_SIZE:
                 self.youtube_downloader.cleanup(filepath)
