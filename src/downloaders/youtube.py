@@ -1006,8 +1006,7 @@ class YouTubeDownloader:
     
     def _get_po_token_config(self) -> Dict[str, Any]:
         """
-        Configuración OPTIMIZADA para PO Token según documentación oficial de yt-dlp
-        Referencia: https://github.com/yt-dlp/yt-dlp/wiki/Extractors#passing-visitor-data-without-cookies
+        Configuración OPTIMIZADA para PO Token CORREGIDA
         """
         # Extraer visitor data si está disponible
         visitor_data = self._extract_visitor_data()
@@ -1022,8 +1021,8 @@ class YouTubeDownloader:
             'fragment_retries': 10,
             'skip_unavailable_fragments': True,
             'extract_flat': False,
-            'concurrent_fragment_downloads': 1,  # Conservador para evitar detección
-            'http_chunk_size': 10485760,  # 10MB - CRÍTICO para YouTube
+            'concurrent_fragment_downloads': 1,
+            'http_chunk_size': 10485760,  # 10MB
             'continuedl': True,
             'noprogress': True,
             'restrictfilenames': True,
@@ -1037,7 +1036,7 @@ class YouTubeDownloader:
             # Cookies SIEMPRE que existan
             'cookiefile': 'cookies.txt' if os.path.exists('cookies.txt') else None,
             
-            # Headers ESPECÍFICOS para mobile (menos sospechosos)
+            # Headers CORREGIDOS (sin 'm' en el hostname)
             'http_headers': {
                 'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
                 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
@@ -1045,51 +1044,34 @@ class YouTubeDownloader:
                 'Accept-Encoding': 'gzip, deflate',
                 'X-YouTube-Client-Name': '2',
                 'X-YouTube-Client-Version': '2.20250101.00.00',
-                'X-YouTube-Device': 'c',
-                'X-YouTube-Page-CL': '123456789',
-                'X-YouTube-Page-Label': 'yts.20250101.00.00',
-                'X-YouTube-Utc-Offset': '0',
-                'X-YouTube-Time-Zone': 'UTC',
                 'Origin': 'https://www.youtube.com',
-                'Referer': 'https://m.youtube.com/',
+                'Referer': 'https://www.youtube.com/',  # CORREGIDO: usar www.youtube.com no m.youtube.com
                 'DNT': '1',
                 'Connection': 'keep-alive',
-                'Upgrade-Insecure-Requests': '1',
-                'Sec-Fetch-Dest': 'document',
-                'Sec-Fetch-Mode': 'navigate',
-                'Sec-Fetch-Site': 'same-origin',
-                'Sec-Fetch-User': '?1',
             },
             
-            # CONFIGURACIÓN PO TOKEN (según documentación)
+            # CONFIGURACIÓN PO TOKEN CORREGIDA
             'extractor_args': {
                 'youtubetab': {
-                    'skip': ['webpage'],  # Saltar webpage request (reduce detección)
+                    'skip': ['webpage'],
                 },
                 'youtube': {
-                    'player_client': ['mweb'],  # Cliente móvil web (menos restricciones)
-                    'player_skip': ['webpage', 'configs', 'js'],  # Saltar requests innecesarios
-                    'innertube_client': 'ANDROID',  # Cliente Android para API
-                    'innertube_client_version': '19.49.37',
-                    'innertube_host': 'music.youtube.com',
+                    'player_client': ['android', 'web'],  # Cambiado: android primero
+                    'player_skip': ['webpage', 'configs'],
+                    'innertube_client': 'WEB',
+                    'innertube_client_version': '2.20250101.00.00',
                 }
             },
             
             # Comportamiento específico
             'geo_bypass': True,
             'geo_bypass_country': 'US',
-            'geo_bypass_ip_block': None,
-            'no_check_certificate': True,
-            'prefer_insecure': False,
-            'source_address': None,
-            'force_ipv4': False,
-            'force_ipv6': False,
         }
         
         # Agregar visitor_data si está disponible
         if visitor_data:
             config['extractor_args']['youtube']['visitor_data'] = visitor_data
-            logger.info(f"✅ Visitor Data incluido en configuración PO Token")
+            logger.info(f"✅ Visitor Data incluido en configuración PO Token: {visitor_data[:30]}...")
         
         return config
     
@@ -1287,7 +1269,77 @@ class YouTubeDownloader:
         except Exception as e:
             logger.error(f"❌ Error con PO Token video: {e}")
             raise
-    
+        
+    def download_with_simple_fallback(self, url: str, format: str = 'm4a') -> Tuple[str, Dict[str, Any]]:
+        """
+        Método SIMPLE y DIRECTO que evita configuraciones complejas
+        Útil cuando todo lo demás falla
+        """
+        if not self.is_youtube_url(url):
+            raise ValueError("URL de YouTube no válida")
+        
+        video_id = self.extract_video_id(url)
+        logger.info(f"🎵 Descargando {video_id} con método simple")
+        
+        # Configuración MÍNIMA y directa
+        ydl_opts = {
+            'quiet': True,
+            'no_warnings': True,
+            'format': 'bestaudio[ext=m4a]/bestaudio',
+            'outtmpl': os.path.join(DOWNLOAD_DIR, f'youtube_simple_{video_id}_%(title).50s.%(ext)s'),
+            'socket_timeout': 30,
+            'retries': 3,
+            'noprogress': True,
+            # SIN extractor_args complejos
+            # SIN headers complejos
+            # SIN visitor_data
+            # SOLO cookies básicas si existen
+        }
+        
+        # Solo agregar cookies si existen
+        if os.path.exists('cookies.txt'):
+            ydl_opts['cookiefile'] = 'cookies.txt'
+            logger.info("✅ Usando cookies.txt en método simple")
+        
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                # Intentar sin información primero (descarga directa)
+                print(f"⬇️  Descargando directamente {video_id}...")
+                ydl.download([url])
+                
+                # Buscar archivo
+                pattern = os.path.join(DOWNLOAD_DIR, f"*{video_id}*")
+                import glob
+                files = glob.glob(pattern)
+                
+                if not files:
+                    raise FileNotFoundError("No se encontró archivo descargado")
+                
+                filepath = files[0]
+                
+                # Obtener información después de descargar
+                try:
+                    info = ydl.extract_info(url, download=False)
+                    title = info.get('title', 'Audio')[:100] if info else 'Audio'
+                except:
+                    title = 'Audio de YouTube'
+                
+                return filepath, {
+                    'id': video_id,
+                    'title': title,
+                    'channel': 'YouTube',
+                    'duration': 0,
+                    'filesize': os.path.getsize(filepath),
+                    'platform': 'youtube',
+                    'content_type': 'audio',
+                    'format': format,
+                    'method': 'simple_fallback',
+                }
+                
+        except Exception as e:
+            logger.error(f"❌ Error en método simple: {e}")
+            raise
+        
     def download_with_po_token_retry(self, url: str, download_type: str = 'audio', 
                                      format: str = 'm4a', quality: str = None,
                                      max_retries: int = 3) -> Tuple[str, Dict[str, Any]]:
