@@ -537,9 +537,15 @@ Aparecerán botones para elegir:
             info = self.youtube_downloader.get_video_info(url)
             
             # Descargar audio
-            filepath, media_info = await asyncio.to_thread(
-                self.youtube_downloader.download_audio, url, 'm4a'
-            )
+            try:
+                filepath, media_info = await asyncio.to_thread(
+                    self.youtube_downloader.download_with_forced_cookies, url, 'm4a'
+                )
+            except Exception as e:
+                # Fallback al método original
+                filepath, media_info = await asyncio.to_thread(
+                    self.youtube_downloader.download_audio, url, 'm4a'
+                )
             
             # Verificar tamaño
             if media_info['filesize'] > MAX_FILE_SIZE:

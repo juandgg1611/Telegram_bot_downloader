@@ -216,17 +216,26 @@ class YouTubeDownloader:
     
     def _get_video_info_structured(self, url: str) -> YouTubeVideoInfo:
         """Obtener información estructurada del video"""
-        # ========== AGREGAR COOKIES PARA OBTENER INFO ==========
+        # ========== CONFIGURACIÓN CON COOKIES ==========
         info_opts = {
             'quiet': True,
             'no_warnings': True,
             'extract_flat': False,
         }
         
-        # Añadir cookies si existen
-        if os.path.exists('cookies.txt'):
-            info_opts['cookiefile'] = 'cookies.txt'
-        # ========== FIN AGREGAR COOKIES ==========
+        # FORZAR uso de cookies si el archivo existe
+        cookies_path = 'cookies.txt'
+        if os.path.exists(cookies_path):
+            info_opts['cookiefile'] = cookies_path
+            print(f"🔐 Usando cookies para obtener info del video")
+            
+            # También agregar headers de navegador
+            info_opts['http_headers'] = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.5',
+                'Referer': 'https://www.youtube.com/',
+            }
         
         try:
             with yt_dlp.YoutubeDL(info_opts) as ydl:
@@ -259,12 +268,18 @@ class YouTubeDownloader:
     
     def get_available_formats(self, url: str) -> List[Dict[str, Any]]:
         """Obtener lista de formatos disponibles"""
-        # ========== AGREGAR COOKIES PARA OBTENER FORMATOS ==========
-        formats_opts = {'quiet': True, 'no_warnings': True}
+        # ========== CONFIGURACIÓN CON COOKIES ==========
+        formats_opts = {
+            'quiet': True,
+            'no_warnings': True,
+        }
         
+        # FORZAR uso de cookies si el archivo existe
         if os.path.exists('cookies.txt'):
             formats_opts['cookiefile'] = 'cookies.txt'
-        # ========== FIN AGREGAR COOKIES ==========
+            formats_opts['http_headers'] = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            }
         
         try:
             with yt_dlp.YoutubeDL(formats_opts) as ydl:
@@ -291,7 +306,107 @@ class YouTubeDownloader:
         except Exception as e:
             logger.error(f"Error obteniendo formatos: {e}")
             return []
-    
+        
+    def download_with_forced_cookies(self, url: str, format: str = 'm4a') -> Tuple[str, Dict[str, Any]]:
+        """Descargar audio FORZANDO uso de cookies"""
+        if not self.is_youtube_url(url):
+            raise ValueError("URL de YouTube no válida")
+        
+        video_id = self.extract_video_id(url)
+        print(f"🎵 Descargando {video_id} con cookies forzadas...")
+        
+        # Configuración AGRESIVA con cookies
+        ydl_opts = {
+            'format': 'bestaudio[ext=m4a]/bestaudio',
+            'outtmpl': os.path.join(DOWNLOAD_DIR, f'youtube_cookies_{video_id}_%(title).50s.%(ext)s'),
+            'quiet': True,
+            'no_warnings': True,
+            'socket_timeout': 30,
+            'retries': 5,
+            
+            # ========== COOKIES FORZADAS ==========
+            'cookiefile': 'cookies.txt',
+            
+            # Headers completos de navegador
+            'http_headers': {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.5',
+                'Accept-Encoding': 'gzip, deflate',
+                'DNT': '1',
+                'Connection': 'keep-alive',
+                'Upgrade-Insecure-Requests': '1',
+                'Sec-Fetch-Dest': 'document',
+                'Sec-Fetch-Mode': 'navigate',
+                'Sec-Fetch-Site': 'none',
+                'Sec-Fetch-User': '?1',
+                'Cache-Control': 'max-age=0',
+                'Referer': 'https://www.youtube.com/',
+            },
+            
+            # Configuración para evitar detección
+            'extractor_args': {
+                'youtube': {
+                    'player_client': ['android', 'web'],
+                    'player_skip': ['js', 'configs'],
+                }
+            },
+            
+            # Comportamiento más humano
+            'sleep_interval': 1,
+            'max_sleep_interval': 3,
+            'ignoreerrors': False,
+            'no_check_certificate': False,
+            'prefer_insecure': False,
+            'geo_bypass': True,
+            'geo_bypass_country': 'US',
+        }
+        
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                # Primero obtener info CON cookies
+                print("🔍 Obteniendo información del video...")
+                info = ydl.extract_info(url, download=False)
+                
+                print(f"📋 Título: {info.get('title', 'Desconocido')}")
+                print(f"⏱ Duración: {info.get('duration', 0)}s")
+                
+                # Luego descargar
+                print("⬇️ Descargando audio...")
+                ydl.download([url])
+                
+                # Buscar archivo descargado
+                pattern = os.path.join(DOWNLOAD_DIR, f"*{video_id}*")
+                import glob
+                files = glob.glob(pattern)
+                
+                if not files:
+                    raise FileNotFoundError("No se encontró archivo descargado")
+                
+                filepath = files[0]
+                
+                # Asegurar extensión .m4a
+                if not filepath.endswith('.m4a'):
+                    new_path = os.path.splitext(filepath)[0] + '.m4a'
+                    if os.path.exists(filepath):
+                        shutil.move(filepath, new_path)
+                        filepath = new_path
+                
+                return filepath, {
+                    'id': video_id,
+                    'title': info.get('title', 'Audio')[:100],
+                    'channel': info.get('uploader', 'YouTube'),
+                    'duration': info.get('duration', 0),
+                    'filesize': os.path.getsize(filepath),
+                    'platform': 'youtube',
+                    'content_type': 'audio',
+                    'format': 'm4a',
+                    'url': url,
+                }
+                
+        except Exception as e:
+            print(f"❌ Error con cookies forzadas: {e}")
+            raise
     # ============================================================================
     # MÉTODOS DE DESCARGA (SIN FFMPEG)
     # ============================================================================
