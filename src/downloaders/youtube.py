@@ -1006,7 +1006,7 @@ class YouTubeDownloader:
     
     def _get_po_token_config(self) -> Dict[str, Any]:
         """
-        Configuración OPTIMIZADA para PO Token CORREGIDA
+        Configuración OPTIMIZADA para PO Token - FORMATOS CORREGIDOS
         """
         # Extraer visitor data si está disponible
         visitor_data = self._extract_visitor_data()
@@ -1022,7 +1022,7 @@ class YouTubeDownloader:
             'skip_unavailable_fragments': True,
             'extract_flat': False,
             'concurrent_fragment_downloads': 1,
-            'http_chunk_size': 10485760,  # 10MB
+            'http_chunk_size': 10485760,
             'continuedl': True,
             'noprogress': True,
             'restrictfilenames': True,
@@ -1036,94 +1036,87 @@ class YouTubeDownloader:
             # Cookies SIEMPRE que existan
             'cookiefile': 'cookies.txt' if os.path.exists('cookies.txt') else None,
             
-            # Headers CORREGIDOS (sin 'm' en el hostname)
+            # Headers más genéricos
             'http_headers': {
-                'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
-                'Accept-Language': 'en-US,en;q=0.9,es;q=0.8',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.5',
                 'Accept-Encoding': 'gzip, deflate',
-                'X-YouTube-Client-Name': '2',
-                'X-YouTube-Client-Version': '2.20250101.00.00',
-                'Origin': 'https://www.youtube.com',
-                'Referer': 'https://www.youtube.com/',  # CORREGIDO: usar www.youtube.com no m.youtube.com
-                'DNT': '1',
                 'Connection': 'keep-alive',
             },
             
-            # CONFIGURACIÓN PO TOKEN CORREGIDA
-            'extractor_args': {
-                'youtubetab': {
-                    'skip': ['webpage'],
-                },
-                'youtube': {
-                    'player_client': ['android', 'web'],  # Cambiado: android primero
-                    'player_skip': ['webpage', 'configs'],
-                    'innertube_client': 'WEB',
-                    'innertube_client_version': '2.20250101.00.00',
-                }
-            },
-            
-            # Comportamiento específico
-            'geo_bypass': True,
-            'geo_bypass_country': 'US',
+            # CONFIGURACIÓN SIMPLIFICADA (sin extractor_args complejos)
+            # YouTube está bloqueando configuraciones específicas
         }
         
-        # Agregar visitor_data si está disponible
+        # Agregar visitor_data DIRECTAMENTE en extractor_args si está disponible
         if visitor_data:
-            config['extractor_args']['youtube']['visitor_data'] = visitor_data
-            logger.info(f"✅ Visitor Data incluido en configuración PO Token: {visitor_data[:30]}...")
+            config['extractor_args'] = {
+                'youtube': {
+                    'visitor_data': visitor_data,
+                    'player_client': ['android'],  # Solo android, más simple
+                }
+            }
+            logger.info(f"✅ Visitor Data incluido: {visitor_data[:30]}...")
         
         return config
     
     def download_audio_with_po_token(self, url: str, format: str = 'm4a') -> Tuple[str, Dict[str, Any]]:
         """
-        Descargar audio usando configuración AVANZADA para PO Token
-        Este es el método MÁS ROBUSTO para evitar bloqueos de YouTube
+        Descargar audio usando configuración SIMPLIFICADA para evitar bloqueos
         """
         if not self.is_youtube_url(url):
             raise ValueError("URL de YouTube no válida")
         
         video_id = self.extract_video_id(url)
-        logger.info(f"🔐 Descargando audio {video_id} con PO Token avanzado")
+        logger.info(f"🔐 Descargando audio {video_id} con método simplificado")
         
-        # Obtener configuración óptima
+        # Obtener configuración simplificada
         ydl_opts = self._get_po_token_config()
         
-        # Personalizar para audio
-        ydl_opts.update({
-            'format': 'bestaudio[ext=m4a]/bestaudio',
-            'outtmpl': os.path.join(DOWNLOAD_DIR, f'youtube_po_{video_id}_%(title).50s.%(ext)s'),
-            'writethumbnail': False,
-            'embedthumbnail': False,
-            'addmetadata': False,
-        })
-        
-        # Intentar múltiples estrategias si falla
-        strategies = [
-            {'format': 'bestaudio[ext=m4a]/bestaudio', 'desc': 'M4A nativo'},
-            {'format': 'bestaudio/best', 'desc': 'Mejor audio disponible'},
-            {'format': 'worstaudio/worst', 'desc': 'Audio de menor calidad'},
+        # FORMATOS GENÉRICOS (sin especificar codec)
+        # YouTube bloquea formatos específicos con PO Token
+        format_strategies = [
+            'bestaudio/best',           # Más genérico
+            'worstaudio/worst',         # Calidad baja pero disponible
+            'ba[ext=m4a]/ba/b',         # Formato alternativo
+            'ba/b',                     # Solo bestaudio
         ]
         
         last_error = None
         
-        for strategy in strategies:
+        for format_strategy in format_strategies:
             try:
-                print(f"\n🎯 Estrategia: {strategy['desc']}")
+                print(f"\n🎯 Probando formato: {format_strategy}")
                 
-                # Actualizar formato
-                ydl_opts['format'] = strategy['format']
+                # Configuración para esta estrategia
+                current_opts = ydl_opts.copy()
+                current_opts.update({
+                    'format': format_strategy,
+                    'outtmpl': os.path.join(DOWNLOAD_DIR, f'youtube_po_{video_id}_%(title).50s.%(ext)s'),
+                    'writethumbnail': False,
+                    'embedthumbnail': False,
+                    'addmetadata': False,
+                })
                 
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                with yt_dlp.YoutubeDL(current_opts) as ydl:
                     # Intentar obtener info primero
                     info = ydl.extract_info(url, download=False)
                     
                     if not info:
-                        continue  # Intentar siguiente estrategia
+                        print("❌ No se pudo obtener información")
+                        continue
                     
                     print(f"📋 Título: {info.get('title', 'Desconocido')}")
                     print(f"⏱ Duración: {info.get('duration', 0)}s")
-                    print(f"🎵 Estrategia: {strategy['desc']}")
+                    print(f"🎵 Formato: {format_strategy}")
+                    
+                    # Mostrar formatos disponibles para debugging
+                    if 'formats' in info:
+                        audio_formats = [f for f in info['formats'] if f.get('acodec') != 'none']
+                        print(f"📊 Formatos de audio disponibles: {len(audio_formats)}")
+                        for fmt in audio_formats[:3]:  # Mostrar primeros 3
+                            print(f"   • {fmt.get('format_id')}: {fmt.get('ext')} ({fmt.get('acodec')})")
                     
                     # Descargar
                     ydl.download([url])
@@ -1134,11 +1127,12 @@ class YouTubeDownloader:
                     files = glob.glob(pattern)
                     
                     if not files:
-                        continue  # Intentar siguiente estrategia
+                        print("❌ No se encontró archivo descargado")
+                        continue
                     
                     filepath = files[0]
                     
-                    # Asegurar extensión correcta
+                    # Renombrar a .m4a si es necesario
                     if format == 'm4a' and not filepath.endswith('.m4a'):
                         base_name = os.path.splitext(filepath)[0]
                         m4a_file = base_name + '.m4a'
@@ -1146,7 +1140,7 @@ class YouTubeDownloader:
                             shutil.move(filepath, m4a_file)
                             filepath = m4a_file
                     
-                    print(f"✅ Audio descargado con PO Token: {filepath}")
+                    print(f"✅ Audio descargado: {filepath}")
                     
                     return filepath, {
                         'id': video_id,
@@ -1157,40 +1151,34 @@ class YouTubeDownloader:
                         'platform': 'youtube',
                         'content_type': 'audio',
                         'format': format,
-                        'method': 'po_token_advanced',
-                        'strategy': strategy['desc'],
+                        'method': 'po_token_simplified',
+                        'strategy': format_strategy,
                     }
                     
             except yt_dlp.utils.DownloadError as e:
                 error_msg = str(e)
                 last_error = error_msg
                 
-                # Análisis del error
-                if "Sign in to confirm you're not a bot" in error_msg:
-                    print(f"⚠️  Bloqueo detectado con {strategy['desc']}")
-                elif "HTTP Error 429" in error_msg:
-                    print(f"⏸️  Rate limit con {strategy['desc']}, esperando...")
-                    time.sleep(15)
+                if "Requested format is not available" in error_msg:
+                    print(f"⚠️  Formato no disponible: {format_strategy}")
+                elif "Sign in to confirm you're not a bot" in error_msg:
+                    print(f"❌ Bloqueo por bot con {format_strategy}")
+                    # Si esto pasa, necesitamos cookies nuevas
+                    break  # No seguir probando
                 else:
-                    print(f"❌ Error con {strategy['desc']}: {error_msg[:80]}")
+                    print(f"❌ Error con {format_strategy}: {error_msg[:80]}")
                 
-                # Esperar antes de intentar siguiente estrategia
-                time.sleep(5)
+                time.sleep(2)
                 continue
                 
             except Exception as e:
                 last_error = str(e)
                 print(f"⚠️  Error inesperado: {e}")
-                time.sleep(3)
+                time.sleep(2)
                 continue
         
         # Si todas las estrategias fallaron
-        error_msg = f"Todas las estrategias PO Token fallaron para {video_id}"
-        if last_error:
-            error_msg += f". Último error: {last_error[:200]}"
-        
-        logger.error(error_msg)
-        raise Exception(error_msg)
+        raise Exception(f"Formatos PO Token fallaron para {video_id}. Último error: {last_error[:200] if last_error else 'Formato no disponible'}")
     
     def download_video_with_po_token(self, url: str, quality: str = None) -> Tuple[str, Dict[str, Any]]:
         """
@@ -1342,23 +1330,25 @@ class YouTubeDownloader:
         
     def download_with_po_token_retry(self, url: str, download_type: str = 'audio', 
                                      format: str = 'm4a', quality: str = None,
-                                     max_retries: int = 3) -> Tuple[str, Dict[str, Any]]:
+                                     max_retries: int = 2) -> Tuple[str, Dict[str, Any]]:  # Reducir retries
         """
-        Sistema SUPERIOR de reintentos con PO Token como PRIMERA opción
+        Sistema SUPERIOR de reintentos con PO Token
         """
         video_id = self.extract_video_id(url)
-        print(f"\n🔄 SISTEMA PO TOKEN AVANZADO para: {video_id}")
+        print(f"\n🔄 SISTEMA AVANZADO para: {video_id}")
         print("=" * 50)
         
-        # Definir métodos en orden de prioridad
+        # NUEVA LISTA DE MÉTODOS (con emergencia al final)
         methods = []
         
         if download_type.lower() == 'audio':
             methods = [
-                ("PO Token Avanzado", lambda: self.download_audio_with_po_token(url, format)),
+                ("PO Token Simplificado", lambda: self.download_audio_with_po_token(url, format)),
                 ("Visitor Data", lambda: self.download_audio_with_visitor_data(url, format)),
+                ("Simple Fallback", lambda: self.download_with_simple_fallback(url, format)),
                 ("Cookies Forzadas", lambda: self.download_with_forced_cookies(url, format)),
                 ("Método Normal", lambda: self.download_audio(url, format)),
+                ("EMERGENCIA", lambda: self.download_audio_emergency(url, format)),  # NUEVO
             ]
         else:
             quality = quality or self.default_quality
@@ -1367,64 +1357,6 @@ class YouTubeDownloader:
                 ("Método Normal Video", lambda: self.download_video(url, quality)),
             ]
         
-        last_error = None
-        attempt_count = 0
-        
-        for method_name, method_func in methods:
-            for retry in range(max_retries):
-                attempt_count += 1
-                try:
-                    print(f"\n🔰 Intento {attempt_count}: {method_name}")
-                    if retry > 0:
-                        print(f"   ↪ Reintento {retry + 1}/{max_retries}")
-                    
-                    return method_func()
-                    
-                except Exception as e:
-                    error_msg = str(e)
-                    last_error = error_msg
-                    
-                    # Análisis inteligente del error
-                    if "Sign in to confirm you're not a bot" in error_msg:
-                        print(f"   ❌ {method_name}: Bloqueo por bot detectado")
-                        if "PO Token" in method_name:
-                            print("   ⚠️  PO Token no funcionó. Probando método alternativo...")
-                    elif "HTTP Error 429" in error_msg:
-                        print(f"   ⏸️  {method_name}: Rate limit, esperando 20 segundos...")
-                        time.sleep(20)
-                        continue  # Reintentar mismo método
-                    elif "This content isn't available" in error_msg:
-                        print(f"   🔄 {method_name}: Contenido no disponible, intentando otro método...")
-                        break  # Cambiar a siguiente método
-                    else:
-                        print(f"   ❌ {method_name}: {error_msg[:80]}")
-                    
-                    # Esperar antes de reintentar
-                    wait_time = 3 * (retry + 1)  # Backoff exponencial
-                    print(f"   ⏳ Esperando {wait_time}s...")
-                    time.sleep(wait_time)
-        
-        # Si todos los métodos fallaron
-        error_summary = f"""
-        ❌ TODOS LOS MÉTODOS FALLARON para {video_id}
-        
-        ERRORES ENCONTRADOS:
-        • Bloqueo por bot detectado
-        • PO Token no funcionó
-        • Visitor Data insuficiente
-        • Cookies pueden estar expiradas
-        
-        SOLUCIONES RECOMENDADAS:
-        1. Actualizar cookies.txt con sesión FRESCA de YouTube
-        2. Verificar que las cookies incluyan VISITOR_INFO1_LIVE
-        3. Probar con otra cuenta de YouTube
-        4. Esperar 1 hora e intentar nuevamente
-        
-        Último error: {last_error[:200] if last_error else 'Desconocido'}
-        """
-        
-        logger.error(error_summary)
-        raise Exception(f"Fallo completo del sistema para {video_id}. Ver logs para detalles.")
     
     def test_po_token_config(self) -> Dict[str, Any]:
         """
@@ -1497,3 +1429,64 @@ class YouTubeDownloader:
                 print("• Revisar configuración de yt-dlp")
         
         return diagnostic
+
+    def download_audio_emergency(self, url: str, format: str = 'm4a') -> Tuple[str, Dict[str, Any]]:
+        """
+        Método de EMERGENCIA - Sin cookies, sin configuraciones, solo descarga básica
+        Útil cuando TODO lo demás falla
+        """
+        if not self.is_youtube_url(url):
+            raise ValueError("URL de YouTube no válida")
+        
+        video_id = self.extract_video_id(url)
+        print(f"🚨 MÉTODO DE EMERGENCIA para: {video_id}")
+        
+        # Configuración MÍNIMA ABSOLUTA
+        ydl_opts = {
+            'quiet': True,
+            'no_warnings': True,
+            'format': 'worstaudio/worst',  # Lo más básico posible
+            'outtmpl': os.path.join(DOWNLOAD_DIR, f'youtube_emergency_{video_id}.%(ext)s'),
+            'socket_timeout': 30,
+            'retries': 2,
+            'noprogress': True,
+            'skip_download': False,
+            # NO cookies
+            # NO headers
+            # NO extractor_args
+            # NO visitor_data
+        }
+        
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                print(f"⬇️  Descargando con método de emergencia...")
+                
+                # Descarga DIRECTA sin información previa
+                ydl.download([url])
+                
+                # Buscar cualquier archivo con el video_id
+                pattern = os.path.join(DOWNLOAD_DIR, f"*{video_id}*")
+                import glob
+                files = glob.glob(pattern)
+                
+                if not files:
+                    raise FileNotFoundError("No se encontró ningún archivo")
+                
+                filepath = files[0]
+                print(f"✅ Descarga de emergencia exitosa: {filepath}")
+                
+                return filepath, {
+                    'id': video_id,
+                    'title': f'Audio de YouTube ({video_id})',
+                    'channel': 'YouTube',
+                    'duration': 0,
+                    'filesize': os.path.getsize(filepath),
+                    'platform': 'youtube',
+                    'content_type': 'audio',
+                    'format': 'm4a' if filepath.endswith('.m4a') else os.path.splitext(filepath)[1][1:],
+                    'method': 'emergency',
+                }
+                
+        except Exception as e:
+            print(f"❌ Error en método de emergencia: {e}")
+            raise Exception(f"Fallo total: {e}")
