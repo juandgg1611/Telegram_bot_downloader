@@ -1330,32 +1330,98 @@ class YouTubeDownloader:
         
     def download_with_po_token_retry(self, url: str, download_type: str = 'audio', 
                                      format: str = 'm4a', quality: str = None,
-                                     max_retries: int = 2) -> Tuple[str, Dict[str, Any]]:  # Reducir retries
+                                     max_retries: int = 2) -> Tuple[str, Dict[str, Any]]:
         """
-        Sistema SUPERIOR de reintentos con PO Token
+        Sistema SUPERIOR de reintentos con PO Token - VERSIÓN CORREGIDA
         """
+        if not self.is_youtube_url(url):
+            raise ValueError("URL de YouTube no válida")
+        
         video_id = self.extract_video_id(url)
+        if not video_id:
+            raise ValueError(f"No se pudo extraer video ID de: {url}")
+        
         print(f"\n🔄 SISTEMA AVANZADO para: {video_id}")
         print("=" * 50)
         
-        # NUEVA LISTA DE MÉTODOS (con emergencia al final)
+        # NUEVA LISTA DE MÉTODOS (CORREGIDA)
         methods = []
         
         if download_type.lower() == 'audio':
             methods = [
-                ("PO Token Simplificado", lambda: self.download_audio_with_po_token(url, format)),
-                ("Visitor Data", lambda: self.download_audio_with_visitor_data(url, format)),
-                ("Simple Fallback", lambda: self.download_with_simple_fallback(url, format)),
-                ("Cookies Forzadas", lambda: self.download_with_forced_cookies(url, format)),
-                ("Método Normal", lambda: self.download_audio(url, format)),
-                ("EMERGENCIA", lambda: self.download_audio_emergency(url, format)),  # NUEVO
+                ("PO Token Simplificado", lambda url=url, format=format: self.download_audio_with_po_token(url, format)),
+                ("Visitor Data", lambda url=url, format=format: self.download_audio_with_visitor_data(url, format)),
+                ("Simple Fallback", lambda url=url, format=format: self.download_with_simple_fallback(url, format)),
+                ("Cookies Forzadas", lambda url=url, format=format: self.download_with_forced_cookies(url, format)),
+                ("Método Normal", lambda url=url, format=format: self.download_audio(url, format)),
+                ("EMERGENCIA", lambda url=url, format=format: self.download_audio_emergency(url, format)),
             ]
         else:
             quality = quality or self.default_quality
             methods = [
-                ("PO Token Video", lambda: self.download_video_with_po_token(url, quality)),
-                ("Método Normal Video", lambda: self.download_video(url, quality)),
+                ("PO Token Video", lambda url=url, quality=quality: self.download_video_with_po_token(url, quality)),
+                ("Método Normal Video", lambda url=url, quality=quality: self.download_video(url, quality)),
             ]
+        
+        last_error = None
+        attempt_count = 0
+        
+        for method_name, method_func in methods:
+            for retry in range(max_retries):
+                attempt_count += 1
+                try:
+                    print(f"\n🔰 Intento {attempt_count}: {method_name}")
+                    if retry > 0:
+                        print(f"   ↪ Reintento {retry + 1}/{max_retries}")
+                    
+                    # IMPORTANTE: Ejecutar el método y RETORNAR el resultado
+                    return method_func()
+                    
+                except Exception as e:
+                    error_msg = str(e)
+                    last_error = error_msg
+                    
+                    # Análisis inteligente del error
+                    if "Sign in to confirm you're not a bot" in error_msg:
+                        print(f"   ❌ {method_name}: Bloqueo por bot detectado")
+                        if "PO Token" in method_name:
+                            print("   ⚠️  PO Token no funcionó. Probando método alternativo...")
+                    elif "HTTP Error 429" in error_msg:
+                        print(f"   ⏸️  {method_name}: Rate limit, esperando 20 segundos...")
+                        time.sleep(20)
+                        continue  # Reintentar mismo método
+                    elif "This content isn't available" in error_msg:
+                        print(f"   🔄 {method_name}: Contenido no disponible, intentando otro método...")
+                        break  # Cambiar a siguiente método
+                    else:
+                        print(f"   ❌ {method_name}: {error_msg[:80]}")
+                    
+                    # Esperar antes de reintentar
+                    wait_time = 3 * (retry + 1)
+                    print(f"   ⏳ Esperando {wait_time}s...")
+                    time.sleep(wait_time)
+        
+        # Si todos los métodos fallaron
+        error_summary = f"""
+        ❌ TODOS LOS MÉTODOS FALLARON para {video_id}
+        
+        ERRORES ENCONTRADOS:
+        • Bloqueo por bot detectado
+        • PO Token no funcionó
+        • Visitor Data insuficiente
+        • Cookies pueden estar expiradas
+        
+        SOLUCIONES RECOMENDADAS:
+        1. Actualizar cookies.txt con sesión FRESCA de YouTube
+        2. Verificar que las cookies incluyan VISITOR_INFO1_LIVE
+        3. Probar con otra cuenta de YouTube
+        4. Esperar 1 hora e intentar nuevamente
+        
+        Último error: {last_error[:200] if last_error else 'Desconocido'}
+        """
+        
+        logger.error(error_summary)
+        raise Exception(f"Fallo completo del sistema para {video_id}. Ver logs para detalles.")
         
     
     def test_po_token_config(self) -> Dict[str, Any]:
@@ -1490,3 +1556,45 @@ class YouTubeDownloader:
         except Exception as e:
             print(f"❌ Error en método de emergencia: {e}")
             raise Exception(f"Fallo total: {e}")
+
+    def verify_cookies_status(self) -> Dict[str, Any]:
+        """
+        Verificar estado de las cookies
+        """
+        status = {
+            'cookies_file_exists': os.path.exists('cookies.txt'),
+            'visitor_data': None,
+            'visitor_data_valid': False,
+            'cookies_count': 0,
+            'important_cookies': [],
+        }
+        
+        if status['cookies_file_exists']:
+            try:
+                with open('cookies.txt', 'r', encoding='utf-8') as f:
+                    content = f.read()
+                    lines = content.split('\n')
+                    
+                    # Contar cookies válidas
+                    valid_cookies = [l for l in lines if l.strip() and not l.startswith('#')]
+                    status['cookies_count'] = len(valid_cookies)
+                    
+                    # Extraer visitor data
+                    for line in lines:
+                        if 'VISITOR_INFO1_LIVE' in line:
+                            parts = line.split('\t')
+                            if len(parts) >= 7:
+                                status['visitor_data'] = parts[6]
+                                # Visitor data válido debe empezar con Cg
+                                status['visitor_data_valid'] = parts[6].startswith('Cg') and len(parts[6]) > 10
+                    
+                    # Verificar cookies importantes
+                    important = ['VISITOR_INFO1_LIVE', '__Secure-1PSID', '__Secure-3PSID', 'LOGIN_INFO']
+                    for cookie in important:
+                        if cookie in content:
+                            status['important_cookies'].append(cookie)
+                            
+            except Exception as e:
+                status['error'] = str(e)
+        
+        return status

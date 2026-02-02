@@ -84,6 +84,37 @@ class TikTokYouTubeBot:
 """
         
         await update.message.reply_text(welcome_text, parse_mode='Markdown')
+    async def _process_youtube_audio(self, update: Update, context: ContextTypes.DEFAULT_TYPE, url: str):
+        """Procesar descarga de audio de YouTube"""
+        try:
+            # VERIFICAR ESTADO DE COOKIES ANTES DE DESCARGAR
+            print("\n🔍 VERIFICANDO ESTADO DE COOKIES...")
+            cookies_status = self.youtube_downloader.verify_cookies_status()
+            
+            print(f"📁 Cookies.txt existe: {cookies_status['cookies_file_exists']}")
+            print(f"📊 Total cookies: {cookies_status['cookies_count']}")
+            print(f"🔐 Visitor Data: {'PRESENTE' if cookies_status['visitor_data'] else 'FALTANTE'}")
+            if cookies_status['visitor_data']:
+                print(f"   Valor: {cookies_status['visitor_data'][:30]}...")
+                print(f"   Válido: {cookies_status['visitor_data_valid']}")
+            print(f"⭐ Cookies importantes: {', '.join(cookies_status['important_cookies'])}")
+            
+            if not cookies_status['cookies_file_exists'] or cookies_status['cookies_count'] < 3:
+                await update.message.reply_text(
+                    "⚠️ *ADVERTENCIA:* No hay cookies válidas de YouTube.\n\n"
+                    "Para descargar, necesitas:\n"
+                    "1. Exportar cookies de YouTube desde Brave/Chrome\n"
+                    "2. Subir el archivo cookies.txt al bot\n"
+                    "3. O usar el comando /cookies para instrucciones",
+                    parse_mode='Markdown'
+                )
+                return
+        except Exception as e:
+            logger.error(f"Error verificando cookies de YouTube: {e}")
+            await update.message.reply_text(
+                "❌ Error verificando cookies de YouTube. Intenta nuevamente más tarde."
+            )
+            return
     
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Manejar comando /help"""
