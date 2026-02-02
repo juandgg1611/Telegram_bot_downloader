@@ -24,7 +24,15 @@ from telegram.ext import (
 
 from .config import TELEGRAM_TOKEN, MAX_FILE_SIZE, MESSAGES, LOG_CONFIG
 from .downloaders.tiktok import TikTokDownloader, TikTokContentInfo
-from .downloaders.youtube import YouTubeDownloader
+try:
+    # Primero intentar importar la nueva versión simple con pytubefix
+    from .downloaders.youtube_simple import YouTubeSimpleDownloader
+    print("✅ Usando YouTubeSimpleDownloader (pytubefix con PO Token)")
+    YouTubeDownloader = YouTubeSimpleDownloader  # Alias para compatibilidad
+except ImportError:
+    # Fallback a la versión original si no existe
+    from .downloaders.youtube import YouTubeDownloader
+    print("⚠️  Usando YouTubeDownloader original (fallback)")
 from .utils.helpers import validate_url, format_file_size, extract_url_from_text, format_duration
 
 # Configurar logging
@@ -558,160 +566,37 @@ Aparecerán botones para elegir:
             
             await query.edit_message_text(error_msg)
             
-    async def _process_youtube_audio(self, url: str, query, context: ContextTypes.DEFAULT_TYPE):
+    async def _process_youtube_audio(self, update: Update, context: ContextTypes.DEFAULT_TYPE, url: str):
         """Procesar descarga de audio de YouTube"""
         try:
-            # Actualizar mensaje
-            await query.edit_message_text("⏳ Descargando audio...")
+            # VERIFICAR ESTADO DE COOKIES ANTES DE DESCARGAR
+            print("\n🔍 VERIFICANDO ESTADO DE COOKIES...")
+            cookies_status = self.youtube_downloader.verify_cookies_status()
             
-            # Obtener información para el caption
-            info = self.youtube_downloader.get_video_info(url)
+            print(f"📁 Cookies.txt existe: {cookies_status['cookies_file_exists']}")
+            print(f"📊 Total cookies: {cookies_status['cookies_count']}")
+            print(f"🔐 Visitor Data: {'PRESENTE' if cookies_status['visitor_data'] else 'FALTANTE'}")
+            if cookies_status['visitor_data']:
+                print(f"   Valor: {cookies_status['visitor_data'][:30]}...")
+                print(f"   Válido: {cookies_status['visitor_data_valid']}")
+            print(f"⭐ Cookies importantes: {', '.join(cookies_status['important_cookies'])}")
             
-            # Descargar audio
-            filepath, media_info = await asyncio.to_thread(
-                self.youtube_downloader.download_with_po_token_retry, url, 'audio', 'm4a'
-            )
-            # Verificar tamaño
-            if media_info['filesize'] > MAX_FILE_SIZE:
-                self.youtube_downloader.cleanup(filepath)
-                await query.edit_message_text(MESSAGES['too_large'])
+            if not cookies_status['cookies_file_exists'] or cookies_status['cookies_count'] < 3:
+                await update.message.reply_text(
+                    "⚠️ *ADVERTENCIA:* No hay cookies válidas de YouTube.\n\n"
+                    "Para descargar, necesitas:\n"
+                    "1. Exportar cookies de YouTube desde Brave/Chrome\n"
+                    "2. Subir el archivo cookies.txt al bot\n"
+                    "3. O usar el comando /cookies para instrucciones",
+                    parse_mode='Markdown'
+                )
                 return
-            
-            # Construir caption
-            caption = f"🎵 YouTube Audio\n📝 {media_info['title'][:100]}\n👤 {media_info['channel']}"
-            if media_info.get('duration', 0) > 0:
-                caption += f"\n⏱ {format_duration(media_info['duration'])}"
-            
-            # Telegram audio limit: 50MB
-            if media_info['filesize'] <= 50 * 1024 * 1024:
-                # Enviar como audio
-                with open(filepath, 'rb') as media_file:
-                    await context.bot.send_audio(
-                        chat_id=query.message.chat_id,
-                        audio=InputFile(media_file, filename=f"youtube_{media_info['id']}.m4a"),
-                        caption=caption,
-                        title=media_info['title'][:64],
-                        performer=media_info['channel'][:64],
-                        read_timeout=120,
-                        write_timeout=120,
-                    )
-            else:
-                # Si es muy grande, enviar como documento
-                await query.edit_message_text(f"⚠️ Audio grande ({media_info['filesize']/1024/1024:.1f}MB). Enviando como documento...")
-                
-                with open(filepath, 'rb') as media_file:
-                    await context.bot.send_document(
-                        chat_id=query.message.chat_id,
-                        document=InputFile(media_file, filename=f"youtube_{media_info['id']}.m4a"),
-                        caption=caption,
-                        read_timeout=120,
-                        write_timeout=120,
-                    )
-            
-            # Actualizar estadísticas
-            self.stats['downloads']['youtube_audio']['total_size'] += media_info['filesize']
-            self.stats['downloads']['youtube_audio']['success'] += 1
-            
-            # Limpiar archivo
-            self.youtube_downloader.cleanup(filepath)
-            
-            # Eliminar mensaje de botones
-            await query.delete_message()
-            
-            logger.info(f"YouTube audio {media_info['id']} enviado exitosamente")
-            
         except Exception as e:
-            logger.error(f"Error procesando audio YouTube: {e}", exc_info=True)
-            error_msg = f"❌ Error descargando audio: {str(e)[:200]}"
-            
-            # Mensajes específicos
-            if "request entity too large" in str(e).lower():
-                error_msg = "❌ Audio demasiado grande (>50MB). Intenta con un video más corto."
-            elif "FFmpeg" in str(e):
-                error_msg = "❌ Error: No se pudo procesar el audio. El formato puede no ser compatible."
-            
-            await query.edit_message_text(error_msg)
-    
-    async def _process_tiktok(self, url: str, update: Update, status_msg) -> bool:
-        """Procesar descarga de TikTok"""
-        try:
-            # Obtener información primero
-            content_info = self.tiktok_downloader.get_content_info(url)
-            
-            # Mostrar preview
-            emoji = "📸" if content_info.content_type == 'photo' else "🎥"
-            content_type_text = "Foto" if content_info.content_type == 'photo' else "Video"
-            
-            preview_text = f"""
-{emoji} **TikTok {content_type_text}**
-        
-📝 **Título:** {content_info.title[:100]}
-👤 **Usuario:** @{content_info.uploader}
-"""
-            
-            if content_info.content_type == 'video' and content_info.duration > 0:
-                preview_text += f"⏱ **Duración:** {format_duration(content_info.duration)}\n"
-            
-            if content_info.view_count > 0:
-                preview_text += f"👁 **Vistas:** {content_info.view_count:,}\n"
-            
-            await status_msg.edit_text(f"{preview_text}\n\n⏳ Descargando...")
-            
-            # Descargar contenido
-            filepath, result_info = await asyncio.to_thread(
-                self.tiktok_downloader.download, url
+            logger.error(f"Error verificando cookies de YouTube: {e}")
+            await update.message.reply_text(
+                "❌ Error verificando cookies de YouTube. Intenta nuevamente más tarde."
             )
-            
-            # Verificar tamaño
-            if result_info['filesize'] > MAX_FILE_SIZE:
-                self.tiktok_downloader.cleanup(filepath)
-                await status_msg.edit_text(MESSAGES['too_large'])
-                return False
-            
-            # Construir caption
-            caption = f"{emoji} TikTok {content_type_text}\n"
-            caption += f"📝 {result_info['title'][:100]}\n"
-            caption += f"👤 @{result_info['uploader']}"
-            
-            if content_info.content_type == 'video':
-                caption += f"\n⏱ {format_duration(result_info.get('duration', 0))}"
-            
-            # Enviar según el tipo de contenido
-            if content_info.content_type == 'photo':
-                with open(filepath, 'rb') as photo_file:
-                    await update.message.reply_photo(
-                        photo=InputFile(photo_file, filename=f"tiktok_photo_{result_info['id']}.jpg"),
-                        caption=caption,
-                        read_timeout=60,
-                        write_timeout=60,
-                    )
-            else:  # video
-                with open(filepath, 'rb') as video_file:
-                    await update.message.reply_video(
-                        video=InputFile(video_file, filename=f"tiktok_{result_info['id']}.mp4"),
-                        caption=caption,
-                        supports_streaming=True,
-                        read_timeout=60,
-                        write_timeout=60,
-                    )
-            
-            # Actualizar estadísticas
-            self.stats['downloads']['tiktok']['total_size'] += result_info['filesize']
-            
-            # Limpiar
-            self.tiktok_downloader.cleanup(filepath)
-            await status_msg.delete()
-            
-            logger.info(f"TikTok {content_info.content_type} {result_info['id']} enviado exitosamente")
-            return True
-            
-        except Exception as e:
-            logger.error(f"Error procesando TikTok: {e}", exc_info=True)
-            error_msg = f"❌ Error TikTok: {str(e)[:200]}"
-            if "No se pudo descargar" in str(e):
-                error_msg += "\n\n⚠️ Posibles causas:\n• El contenido es privado\n• TikTok bloqueó la descarga\n• El enlace es inválido"
-            await status_msg.edit_text(error_msg)
-            return False
+            return
         
     async def _handle_pinterest_url(self, url: str, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Manejar URL de Pinterest (descarga directa)"""
