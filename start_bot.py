@@ -10,15 +10,17 @@ from pathlib import Path
 from threading import Thread
 from flask import Flask
 
-# ========== CONFIGURACIÓN DE COOKIES (AL INICIO) ==========
+# ========== CONFIGURACIÓN DE PATH ==========
 print("=" * 50)
 print("🤖 INICIANDO BOT DE TELEGRAM - CONFIGURACIÓN")
 print("=" * 50)
+print(f"📁 Directorio actual: {Path.cwd()}")
+print(f"📁 Archivo: {__file__}")
 
-# Añadir directorio actual al path
-sys.path.insert(0, str(Path(__file__).parent))
+# Asegurar que src está en el path
+sys.path.insert(0, str(Path(__file__).parent / 'src'))
 
-# Configurar cookies de YouTube
+# ========== CONFIGURACIÓN DE COOKIES ==========
 try:
     from setup_cookies import setup_youtube_cookies
     cookies_ok = setup_youtube_cookies()
@@ -88,9 +90,8 @@ def main():
     
     # Importar y configurar el bot
     try:
-        # Asegurar que podemos importar desde src
-        sys.path.insert(0, str(Path(__file__).parent / 'src'))
-        from bot import setup_application
+        # Importación CORRECTA desde src
+        from src.bot import setup_application  # <-- ¡ESTA ES LA LÍNEA CLAVE!
         
         application, bot = setup_application()
         
@@ -110,6 +111,14 @@ def main():
         # Ejecutar bot
         application.run_polling(drop_pending_updates=True, allowed_updates=["message", "callback_query"])
         
+    except ImportError as e:
+        print(f"❌ Error de importación: {e}")
+        print("   Verifica que src/bot.py exista")
+        print(f"   sys.path: {sys.path}")
+        print(f"   Directorio: {os.listdir('.')}")
+        if os.path.exists('src'):
+            print(f"   src/: {os.listdir('src')}")
+        sys.exit(1)
     except Exception as e:
         print(f"❌ Error fatal: {e}")
         import traceback
