@@ -6,6 +6,6 @@ services:
     startCommand: python start_bot.py
     envVars:
       - key: PYTHON_VERSION
-        value: 3.10
+        value: 3.10.12
     plan: free
     autoDeploy: true
